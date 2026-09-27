@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "name": "engineering-shorts-generator",
+  "builds": [
+    {
+      "src": "src/local_main.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "src/web_server.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "src/web_server.py"
+    }
+  ],
+  "env": {
+    "USE_LOCAL_AI": "true",
+    "OLLAMA_HOST": "http://localhost:11434",
+    "OLLAMA_MODEL": "llama3.2",
+    "STORAGE_TYPE": "local"
+  },
+  "functions": {
+    "api/*": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  }
+}
