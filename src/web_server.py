@@ -11,6 +11,7 @@ from functools import wraps
 # Flask import
 try:
     from flask import Flask, request, jsonify, session
+    from flask_cors import CORS
     FLASK_AVAILABLE = True
 except ImportError:
     FLASK_AVAILABLE = False
@@ -31,7 +32,7 @@ class WebServer:
             self.app.secret_key = config.get('secret_key', 'engineering-shorts-secret')
             
             # CORS 설정
-            self.app.config['CORS_HEADERS'] = 'Content-Type'
+            CORS(self.app)
             
             # 서비스 초기화
             self._init_services()
@@ -47,9 +48,15 @@ class WebServer:
         """서비스 초기화"""
         from auth_service import AuthService
         from storage_service import StorageService
+        from ollama_service import OllamaService
         
         self.auth_service = AuthService(self.config)
         self.storage_service = StorageService(self.config)
+        
+        # Ollama 서비스 초기화
+        ollama_host = self.config.get('ollama_host', 'http://localhost:11434')
+        ollama_model = self.config.get('ollama_model', 'llama3.2')
+        self.ollama_service = OllamaService(host=ollama_host, model=ollama_model)
     
     def _setup_routes(self):
         """라우트 설정"""
@@ -160,6 +167,64 @@ class WebServer:
         def delete_file(storage_path):
             result = self.storage_service.delete_file(storage_path)
             return jsonify(result)
+        
+        # Ollama API 엔드포인트
+        @self.app.route('/ollama/generate', methods=['POST'])
+        def ollama_generate():
+            """Ollama 텍스트 생성 API"""
+            data = request.json
+            prompt = data.get('prompt', '')
+            model = data.get('model', None)
+            
+            if not prompt:
+                return jsonify({'success': False, 'error': '프롬프트가 필요합니다'})
+            
+            try:
+                result = self.ollama_service.generate_text(prompt, model)
+                return jsonify({
+                    'success': True,
+                    'response': result,
+                    'model': model or self.ollama_service.model
+                })
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
+        
+        @self.app.route('/ollama/analyze-script', methods=['POST'])
+        def ollama_analyze_script():
+            """Ollama 스크립트 분석 API"""
+            data = request.json
+            script_text = data.get('script_text', '')
+            num_keyframes = data.get('num_keyframes', 15)
+            
+            if not script_text:
+                return jsonify({'success': False, 'error': '스크립트 텍스트가 필요합니다'})
+            
+            try:
+                result = self.ollama_service.analyze_script_for_images(script_text, num_keyframes)
+                return jsonify({
+                    'success': True,
+                    'keyframes': result,
+                    'num_keyframes': len(result)
+                })
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
+        
+        @self.app.route('/ollama/status', methods=['GET'])
+        def ollama_status():
+            """Ollama 연결 상태 확인"""
+            try:
+                is_connected = self.ollama_service.check_connection()
+                available_models = self.ollama_service.get_available_models()
+                
+                return jsonify({
+                    'success': True,
+                    'connected': is_connected,
+                    'host': self.ollama_service.host,
+                    'model': self.ollama_service.model,
+                    'available_models': available_models
+                })
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
     
     def run(self, host='0.0.0.0', port=8000, debug=False):
         """서버 실행"""
