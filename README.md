@@ -94,7 +94,7 @@ from integrated_main import IntegratedSystem
 system = IntegratedSystem()
 result = system.generate_authenticated_video(
     script_file_path="example_script.md",
-    user_id="user123"
+    id_token="<Firebase ID token from the signed-in client>"
 )
 ```
 
@@ -192,10 +192,11 @@ engineering-shorts-generator/
 | TTS_VOICE | ElevenLabs 음성 ID | - |
 | GOOGLE_API_KEY | Google API 키 | - |
 | BLOB_READ_WRITE_TOKEN | Vercel Blob 업로드 토큰 | - |
+| AUTH_TOKEN | Ollama 웹 API용 Bearer 토큰 | - |
 | VIDEO_DURATION | 비디오 길이 (초) | 30 |
 | FPS | 프레임 레이트 | 30 |
 
-생성 결과는 실제 provider 응답과 fallback을 구분합니다. 현재 Google Flow/Imagen 연결은
+`/ollama/*` 웹 API에는 `AUTH_TOKEN` 또는 검증된 Firebase ID token이 필요합니다. 생성 결과는 실제 provider 응답과 fallback을 구분합니다. 현재 Google Flow/Imagen 연결은
 미구현 상태이므로 이미지 fallback은 실제 생성 이미지로 표시되지 않습니다. MP4 생성은
 MoviePy 인코딩이 끝나고 결과 파일에서 비디오 프레임을 확인한 경우에만 완료로 처리합니다.
 

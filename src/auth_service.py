@@ -1,12 +1,13 @@
 """
 Authentication Service Module
-Firebase, GitHub, Google 로그인 및 사용자 관리
+Firebase and GitHub authentication and user management
 """
 
-import os
-import json
-from typing import Dict, Optional, Any
-from datetime import datetime, timedelta
+from typing import Dict
+try:
+    from .firebase_utils import initialize_firebase_app
+except ImportError:
+    from firebase_utils import initialize_firebase_app
 
 # Firebase 인증
 try:
@@ -30,6 +31,7 @@ class AuthService:
     def __init__(self, config: Dict):
         self.config = config
         self.firebase_initialized = False
+        self.firebase_app = None
         self.github_session = None
         
         # Firebase 초기화
@@ -43,16 +45,11 @@ class AuthService:
     def _initialize_firebase(self):
         """Firebase 초기화"""
         try:
-            firebase_key_path = self.config.get('firebase_key_path')
-            if firebase_key_path and os.path.exists(firebase_key_path):
-                cred = credentials.Certificate(firebase_key_path)
-                firebase_admin.initialize_app(cred)
-                self.firebase_initialized = True
-                print("Firebase 초기화 완료")
-            else:
-                print("Firebase 키 파일을 찾을 수 없습니다.")
-        except Exception as e:
-            print(f"Firebase 초기화 실패: {e}")
+            self.firebase_app = initialize_firebase_app(self.config)
+            self.firebase_initialized = True
+            print("Firebase 초기화 완료")
+        except Exception:
+            print("Firebase 초기화에 실패했습니다.")
     
     def _initialize_github_oauth(self):
         """GitHub OAuth 초기화"""
@@ -69,8 +66,8 @@ class AuthService:
                 print("GitHub OAuth 초기화 완료")
             else:
                 print("GitHub OAuth 설정이 부족합니다.")
-        except Exception as e:
-            print(f"GitHub OAuth 초기화 실패: {e}")
+        except Exception:
+            print("GitHub OAuth 초기화에 실패했습니다.")
     
     def register_user(self, email: str, password: str, metadata: Dict = None) -> Dict:
         """사용자 등록"""
@@ -80,34 +77,46 @@ class AuthService:
                 'success': False,
                 'error': 'Firebase가 초기화되지 않았습니다.'
             }
-        
+
+        if not isinstance(email, str) or not email.strip() or not isinstance(password, str) or not password:
+            return {'success': False, 'error': 'Email and password are required.'}
+        if metadata is not None and not isinstance(metadata, dict):
+            return {'success': False, 'error': 'User metadata must be an object.'}
+        if metadata and set(metadata) - {'display_name'}:
+            return {'success': False, 'error': 'Only the display_name metadata field is supported.'}
+        display_name = (metadata or {}).get('display_name')
+        if display_name is not None and not isinstance(display_name, str):
+            return {'success': False, 'error': 'Display name must be a string.'}
+
+        user = None
         try:
-            # Firebase에 사용자 생성
             user = auth.create_user(
-                email=email,
+                email=email.strip(),
                 password=password,
-                display_name=metadata.get('display_name', '') if metadata else ''
+                display_name=display_name or None,
             )
-            
-            # 사용자 메타데이터 저장
-            if metadata:
-                auth.update_user(user.uid, email=email, **metadata)
-            
+            try:
+                custom_token = auth.create_custom_token(user.uid)
+                if isinstance(custom_token, bytes):
+                    custom_token = custom_token.decode('utf-8')
+            except Exception:
+                auth.delete_user(user.uid)
+                raise
             return {
                 'success': True,
                 'user_id': user.uid,
                 'email': user.email,
-                'message': '사용자 등록 완료'
+                'custom_token': custom_token,
+                'message': 'User registered. Exchange the custom token with the Firebase client SDK to sign in.',
             }
-            
-        except Exception as e:
+        except Exception:
             return {
                 'success': False,
-                'error': f'사용자 등록 실패: {str(e)}'
+                'error': 'User registration failed.',
             }
     
-    def login_user(self, email: str, password: str) -> Dict:
-        """사용자 로그인"""
+    def login_user(self, id_token: str) -> Dict:
+        """Verify the ID token issued after Firebase client-side sign-in."""
         
         if not self.firebase_initialized:
             return {
@@ -115,24 +124,13 @@ class AuthService:
                 'error': 'Firebase가 초기화되지 않았습니다.'
             }
         
-        try:
-            # Firebase 사용자 인증
-            user = auth.get_user_by_email(email)
-            
-            # 사용자 정보 반환
-            return {
-                'success': True,
-                'user_id': user.uid,
-                'email': user.email,
-                'display_name': user.display_name,
-                'message': '로그인 완료'
-            }
-            
-        except Exception as e:
-            return {
-                'success': False,
-                'error': f'로그인 실패: {str(e)}'
-            }
+        verified = self.verify_token(id_token)
+        if not verified.get('success'):
+            return verified
+        return {
+            **verified,
+            'message': 'Firebase ID token verified.',
+        }
     
     def get_github_auth_url(self) -> str:
         """GitHub 인증 URL 생성"""
@@ -144,8 +142,8 @@ class AuthService:
             authorization_url = 'https://github.com/login/oauth/authorize'
             auth_url, state = self.github_session.authorization_url(authorization_url)
             return auth_url
-        except Exception as e:
-            print(f"GitHub 인증 URL 생성 실패: {e}")
+        except Exception:
+            print("GitHub 인증 URL 생성에 실패했습니다.")
             return None
     
     def handle_github_callback(self, code: str) -> Dict:
@@ -173,10 +171,10 @@ class AuthService:
                 'message': 'GitHub 로그인 완료'
             }
             
-        except Exception as e:
+        except Exception:
             return {
                 'success': False,
-                'error': f'GitHub 인증 실패: {str(e)}'
+                'error': 'GitHub authentication failed.',
             }
     
     def verify_token(self, token: str) -> Dict:
@@ -188,22 +186,25 @@ class AuthService:
                 'error': 'Firebase가 초기화되지 않았습니다.'
             }
         
+        if not isinstance(token, str) or not token.strip():
+            return {'success': False, 'error': 'A Firebase ID token is required.'}
+
         try:
-            decoded_token = auth.verify_id_token(token)
+            decoded_token = auth.verify_id_token(token.strip(), check_revoked=True)
             return {
                 'success': True,
                 'user_id': decoded_token['uid'],
                 'email': decoded_token.get('email'),
                 'verified': True
             }
-        except Exception as e:
+        except Exception:
             return {
                 'success': False,
-                'error': f'토큰 검증 실패: {str(e)}'
+                'error': 'Firebase ID token is invalid or expired.',
             }
     
-    def logout_user(self, user_id: str) -> Dict:
-        """사용자 로그아웃"""
+    def logout_user(self, id_token: str) -> Dict:
+        """Revoke refresh tokens for the authenticated user."""
         
         if not self.firebase_initialized:
             return {
@@ -211,18 +212,16 @@ class AuthService:
                 'error': 'Firebase가 초기화되지 않았습니다.'
             }
         
+        verified = self.verify_token(id_token)
+        if not verified.get('success'):
+            return verified
         try:
-            # Firebase 토큰 무효화
-            auth.revoke_refresh_tokens(user_id)
-            
-            return {
-                'success': True,
-                'message': '로그아웃 완료'
-            }
-        except Exception as e:
+            auth.revoke_refresh_tokens(verified['user_id'])
+            return {'success': True, 'message': 'Logout completed.'}
+        except Exception:
             return {
                 'success': False,
-                'error': f'로그아웃 실패: {str(e)}'
+                'error': 'Logout failed.',
             }
     
     def get_user_info(self, user_id: str) -> Dict:
@@ -245,8 +244,8 @@ class AuthService:
                 'email_verified': user.email_verified,
                 'metadata': user.custom_claims
             }
-        except Exception as e:
+        except Exception:
             return {
                 'success': False,
-                'error': f'사용자 정보 조회 실패: {str(e)}'
+                'error': 'User information lookup failed.',
             }

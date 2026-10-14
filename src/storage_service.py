@@ -5,16 +5,19 @@ Storage Service Module
 
 import os
 import json
+import ntpath
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime
 import mimetypes
 import requests
 from urllib.parse import quote
 
 try:
     from .env_utils import get_env_value, resolve_env_value
+    from .firebase_utils import initialize_firebase_app
 except ImportError:
     from env_utils import get_env_value, resolve_env_value
+    from firebase_utils import initialize_firebase_app
 
 # Firebase Storage
 try:
@@ -57,7 +60,9 @@ class StorageService:
     def _initialize_firebase_storage(self):
         """Firebase Storage 초기화"""
         try:
-            self.firebase_storage = storage.bucket()
+            app = initialize_firebase_app(self.config)
+            bucket_name = self.config.get('firebase_storage_bucket')
+            self.firebase_storage = storage.bucket(name=bucket_name, app=app)
             print("Firebase Storage 초기화 완료")
         except Exception:
             print("Firebase Storage 초기화에 실패했습니다.")
@@ -167,18 +172,15 @@ class StorageService:
             if metadata:
                 blob.metadata = metadata
             
-            # 파일 업로드
-            blob.upload_from_filename(file_path)
-            
-            # URL 생성
-            file_url = blob.generate_signed_url(timedelta(days=7))
+            content_type = mimetypes.guess_type(file_path)[0] or 'application/octet-stream'
+            blob.upload_from_filename(file_path, content_type=content_type)
             
             return {
                 'success': True,
-                'file_url': file_url,
+                'file_url': f'gs://{blob.bucket.name}/{destination}',
                 'storage_path': destination,
                 'storage_type': 'firebase',
-                'message': 'Firebase Storage 업로드 완료'
+                'message': 'Firebase Storage uploaded; access requires Firebase Storage authorization.'
             }
             
         except Exception:
@@ -226,8 +228,7 @@ class StorageService:
         """로컬 저장소에 업로드"""
         
         try:
-            # 로컬 저장 경로
-            local_path = os.path.join(self.local_storage_dir, destination)
+            local_path = self._resolve_local_path(destination)
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
             
             # 파일 복사
@@ -250,6 +251,24 @@ class StorageService:
             
         except Exception:
             raise RuntimeError("로컬 업로드 실패") from None
+
+    def _resolve_local_path(self, storage_path: str) -> str:
+        """Resolve a storage key and reject paths outside the local storage root."""
+        if not isinstance(storage_path, str) or not storage_path.strip():
+            raise ValueError("Storage path is required.")
+        normalized = storage_path.replace('\\', '/')
+        drive, _ = ntpath.splitdrive(normalized)
+        if drive or os.path.isabs(normalized) or ntpath.isabs(normalized):
+            raise ValueError("Absolute storage paths are not allowed.")
+        parts = [part for part in normalized.split('/') if part not in ('', '.')]
+        if not parts or any(part == '..' for part in parts):
+            raise ValueError("Invalid storage path.")
+
+        root = os.path.realpath(self.local_storage_dir)
+        path = os.path.realpath(os.path.join(root, *parts))
+        if os.path.commonpath((root, path)) != root:
+            raise ValueError("Storage path escapes the local storage root.")
+        return path
     
     def upload_project_files(self, project_id: str, file_paths: List[str]) -> Dict:
         """프로젝트 파일들 업로드"""
@@ -302,7 +321,7 @@ class StorageService:
                 }
             else:
                 # 로컬 파일 삭제
-                local_path = os.path.join(self.local_storage_dir, storage_path)
+                local_path = self._resolve_local_path(storage_path)
                 if os.path.exists(local_path):
                     os.remove(local_path)
                     # 메타데이터 파일도 삭제
@@ -314,10 +333,10 @@ class StorageService:
                     'message': '로컬 파일 삭제 완료'
                 }
                 
-        except Exception as e:
+        except Exception:
             return {
                 'success': False,
-                'error': f'파일 삭제 실패: {str(e)}'
+                'error': 'File deletion failed.',
             }
     
     def get_file_info(self, storage_path: str) -> Dict:
@@ -351,7 +370,7 @@ class StorageService:
                 }
             else:
                 # 로컬 파일 정보
-                local_path = os.path.join(self.local_storage_dir, storage_path)
+                local_path = self._resolve_local_path(storage_path)
                 if os.path.exists(local_path):
                     return {
                         'success': True,
@@ -366,8 +385,8 @@ class StorageService:
                         'error': '파일을 찾을 수 없습니다'
                     }
                     
-        except Exception as e:
+        except Exception:
             return {
                 'success': False,
-                'error': f'파일 정보 조회 실패: {str(e)}'
+                'error': 'File information lookup failed.',
             }

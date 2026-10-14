@@ -71,6 +71,14 @@ class TTSService:
         self.last_provider = provider
         if provider not in self.providers_used:
             self.providers_used.append(provider)
+
+    @staticmethod
+    def _validate_audio_file(audio_path: str) -> str:
+        if not isinstance(audio_path, str) or not os.path.isfile(audio_path):
+            raise RuntimeError("Speech provider did not create an audio file.")
+        if os.path.getsize(audio_path) == 0:
+            raise RuntimeError("Speech provider created an empty audio file.")
+        return audio_path
     
     def generate_speech_with_gtts(self, text: str, output_path: str = None, 
                                 language: str = 'ko', slow: bool = False) -> str:
@@ -133,6 +141,8 @@ class TTSService:
                 voice=voice,
                 audio_config=audio_config
             )
+            if not response.audio_content:
+                raise RuntimeError("Google TTS returned empty audio.")
             
             # 오디오 파일 저장
             with open(output_path, 'wb') as out:
@@ -269,11 +279,12 @@ class TTSService:
         try:
             from pydub import AudioSegment
             audio = AudioSegment.from_mp3(audio_path)
-            return len(audio) / 1000.0  # 밀리초를 초로 변환
-        except Exception as e:
-            print(f"오디오 길이 측정 중 오류: {e}")
-            # 텍스트 길이로 추정 (한국어 기준)
-            return len(audio_path) / 5.0  # 대략적인 추정
+            duration = len(audio) / 1000.0
+            if duration <= 0:
+                raise RuntimeError("Audio file has no playable duration.")
+            return duration
+        except Exception as exc:
+            raise RuntimeError("Audio duration could not be measured.") from exc
     
     def concatenate_audio_files(self, audio_files: List[str], output_path: str = None) -> str:
         """여러 오디오 파일 연결"""
@@ -283,13 +294,20 @@ class TTSService:
         
         try:
             from pydub import AudioSegment
-            
+            if not audio_files or any(
+                not os.path.isfile(path) or os.path.getsize(path) == 0
+                for path in audio_files
+            ):
+                raise RuntimeError("One or more speech segments are missing or empty.")
+
             combined = AudioSegment.empty()
             
             for audio_file in audio_files:
-                if os.path.exists(audio_file):
-                    audio = AudioSegment.from_mp3(audio_file)
-                    combined += audio
+                audio = AudioSegment.from_mp3(audio_file)
+                combined += audio
+
+            if len(combined) <= 0:
+                raise RuntimeError("Combined speech contains no audio.")
             
             combined.export(output_path, format='mp3')
             
@@ -303,6 +321,8 @@ class TTSService:
     def generate_speech_from_script(self, script_text: str, output_path: str = None,
                                    method: str = 'auto') -> str:
         """스크립트 전체 음성 생성"""
+        if not isinstance(script_text, str) or not script_text.strip():
+            raise ValueError("Speech script must not be empty.")
         
         method = self._configured_method(method)
         self.providers_used = []
@@ -322,7 +342,9 @@ class TTSService:
             for index, segment in enumerate(segments):
                 temp_path = os.path.join(self.temp_dir, f'temp_segment_{index:04d}.mp3')
                 try:
-                    audio_path = self._generate_with_method(segment, temp_path, method)
+                    audio_path = self._validate_audio_file(
+                        self._generate_with_method(segment, temp_path, method)
+                    )
                     audio_files.append(audio_path)
                 except Exception as e:
                     print(f"세그먼트 음성 생성 실패: {e}")
@@ -345,11 +367,13 @@ class TTSService:
                     except Exception as e:
                         print(f"임시 파일 삭제 실패: {e}")
             
-            return final_path
+            return self._validate_audio_file(final_path)
         else:
             # 짧은 텍스트는 바로 생성
             try:
-                return self._generate_with_method(script_text, output_path, method)
+                return self._validate_audio_file(
+                    self._generate_with_method(script_text, output_path, method)
+                )
             except Exception as e:
                 raise RuntimeError(f"음성 생성 실패: {str(e)}")
     

@@ -94,6 +94,28 @@ class ExternalServiceTests(unittest.TestCase):
             self.assertFalse(service.used_fallback)
             self.assertEqual(post.call_args.kwargs['headers']['xi-api-key'], 'test-token')
 
+    def test_tts_does_not_return_success_for_a_missing_audio_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = TTSService({
+                'output_dir': directory,
+                'temp_dir': directory,
+                'tts_provider': 'gtts',
+            })
+            service._generate_with_method = lambda *_args: os.path.join(directory, 'missing.mp3')
+
+            with self.assertRaisesRegex(RuntimeError, 'audio file'):
+                service.generate_speech_from_script('test speech')
+
+    def test_audio_duration_is_not_guessed_from_a_filename(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = TTSService({
+                'output_dir': directory,
+                'temp_dir': directory,
+            })
+
+            with self.assertRaisesRegex(RuntimeError, 'could not be measured'):
+                service._get_audio_duration(os.path.join(directory, 'missing-audio.mp3'))
+
     @patch('src.storage_service.requests.put')
     def test_vercel_blob_success_uses_provider_response_without_returning_token(self, put):
         response = Mock(status_code=200)

@@ -35,7 +35,7 @@ class GPTService:
 - visual_elements: 포함해야 할 주요 시각적 요소들
 - engineering_concept: 이 장면이 설명하는 공학적 개념
 
-응답은 반드시 유효한 JSON 배열 형식이어야 합니다.
+응답은 반드시 {{ "keyframes": [...] }} 형식의 유효한 JSON 객체여야 합니다.
 """
         
         try:

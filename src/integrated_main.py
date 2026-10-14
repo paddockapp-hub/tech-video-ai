@@ -79,10 +79,12 @@ class IntegratedSystem:
             # 인증 설정
             'firebase_enabled': (get_env_value('FIREBASE_ENABLED', 'false') or 'false').lower() == 'true',
             'firebase_key_path': get_env_value('FIREBASE_KEY_PATH'),
+            'firebase_storage_bucket': get_env_value('FIREBASE_STORAGE_BUCKET'),
             'github_enabled': (get_env_value('GITHUB_ENABLED', 'false') or 'false').lower() == 'true',
             'github_client_id': get_env_value('GITHUB_CLIENT_ID'),
             'github_client_secret': get_env_value('GITHUB_CLIENT_SECRET'),
             'github_redirect_uri': get_env_value('GITHUB_REDIRECT_URI', 'http://localhost:8000/auth/github/callback'),
+            'auth_token': get_env_value('AUTH_TOKEN'),
             # 스토리지 설정
             'storage_type': get_env_value(
                 'STORAGE_TYPE',
@@ -95,7 +97,7 @@ class IntegratedSystem:
             'aws_secret_access_key': get_env_value('AWS_SECRET_ACCESS_KEY'),
             'aws_region': get_env_value('AWS_REGION', 'us-east-1'),
             # 웹 서버 설정
-            'secret_key': get_env_value('SECRET_KEY', 'engineering-shorts-secret')
+            'secret_key': get_env_value('SECRET_KEY')
         }
         
         if config_path and os.path.exists(config_path):
@@ -108,9 +110,17 @@ class IntegratedSystem:
         
         return resolve_config_values(default_config)
     
-    def generate_authenticated_video(self, script_file_path: str, user_id: str) -> Dict:
+    def generate_authenticated_video(self, script_file_path: str, id_token: str) -> Dict:
         """인증된 사용자의 비디오 생성"""
-        
+        identity = self.auth_service.verify_token(id_token)
+        if not identity.get('success'):
+            return {
+                'success': False,
+                'status': 'unauthorized',
+                'error': 'A valid Firebase ID token is required.',
+            }
+        user_id = identity['user_id']
+
         print(f"=== 사용자 {user_id} 비디오 생성 시작 ===")
         
         try:

@@ -57,8 +57,7 @@
 2. "시작하기" 버튼 클릭
 3. "시작하기" 클릭
 4. 보안 규칙 설정:
-   - 테스트용: `allow read, write: if true;`
-   - 프로덕션용: `allow read, write: if request.auth != null;`
+   - 아래 사용자별 규칙을 적용하고, 모든 사용자에게 읽기/쓰기를 허용하는 규칙은 배포하지 마세요.
 5. "완료" 클릭
 
 ## 5. .env 파일 설정
@@ -69,20 +68,22 @@
 # Firebase 설정
 FIREBASE_ENABLED=true
 FIREBASE_KEY_PATH=firebase-adminsdk-key.json
+FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
 ```
+
+`FIREBASE_STORAGE_BUCKET`는 Firebase Console의 Storage 버킷 이름입니다. Storage를 사용할 때는 프로젝트에 표시된 정확한 버킷 이름을 설정하세요. 서비스 계정 JSON을 배포 파일시스템에 둘 수 없는 환경에서는 해당 런타임의 Application Default Credentials를 구성하고 `FIREBASE_KEY_PATH`를 비워 둘 수 있습니다.
 
 ## 6. Firebase 연동 테스트
 
-### 6.1 연동 테스트 스크립트 실행
-```bash
-cd engineering-shorts-generator
-py -3.14 test_auth_storage.py
-```
+### 6.1 사용자 가입과 로그인
 
-### 6.2 예상 결과
-- Firebase 상태: 활성화
-- Firebase가 초기화되지 않았습니다 오류 없음
-- 로그인/등록 기능 작동
+`POST /auth/register`는 Firebase 사용자를 만든 뒤 Firebase custom token을 반환합니다. 클라이언트는 Firebase Authentication SDK의 `signInWithCustomToken`으로 토큰을 교환해 ID token을 받아야 합니다. 이메일/비밀번호 로그인은 클라이언트 Firebase SDK에서 수행한 후 ID token을 `POST /auth/login` 또는 `Authorization: Bearer <ID token>`으로 전달합니다. Firebase Admin SDK는 비밀번호를 검증하지 않으므로 서버는 이메일 주소 조회만으로 로그인시키지 않습니다.
+
+`/ollama/*` API에는 설정한 `AUTH_TOKEN` 또는 Firebase ID token을 Bearer 인증으로 전달해야 합니다.
+
+### 6.2 보호된 Storage API
+
+Storage 업로드·조회·삭제 API에는 Firebase ID token이 필요합니다. 사용자 경로는 `users/<uid>/...`, `videos/<uid>/...`, `audio/<uid>/...` 또는 `projects/<uid>/...` 범위로 제한됩니다. Firebase Admin SDK는 Storage 규칙을 우회하므로 API의 UID 경로 검증과 서비스 계정 권한을 함께 제한하세요. 업로드 응답은 공개 서명 URL 대신 `gs://` 경로를 반환합니다.
 
 ## 7. Firebase 규칙 설정
 
@@ -92,8 +93,11 @@ Firestore 데이터베이스 규칙 (사용 시):
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }
@@ -104,8 +108,13 @@ service cloud.firestore {
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    match /{namespace}/{userId}/{allPaths=**} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == userId
+        && namespace in ['users', 'videos', 'audio', 'projects'];
+    }
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

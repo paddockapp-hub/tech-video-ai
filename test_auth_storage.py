@@ -99,7 +99,7 @@ def test_auth_services():
     
     # Firebase 비활성화 상태에서의 테스트
     print("Firebase 비활성화 상태 테스트...")
-    result = auth_service.login_user("test@example.com", "password")
+    result = auth_service.login_user("invalid-id-token")
     print(f"로그인 결과: {json.dumps(result, indent=2, ensure_ascii=False)}")
     
     if not result['success']:
