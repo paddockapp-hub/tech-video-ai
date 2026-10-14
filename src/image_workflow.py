@@ -39,6 +39,10 @@ class ImageWorkflow:
         # 1단계: 스크립트 분석
         print("1단계: 스크립트 분석 중...")
         script_analysis = self.script_analyzer.parse_markdown_file(script_file_path)
+        if not script_analysis.get('script_text', '').strip():
+            raise ValueError("스크립트 본문이 비어 있습니다.")
+        if script_analysis.get('duration', 0) <= 0:
+            raise ValueError("영상 길이를 계산할 수 없습니다.")
         print(f"   - 제목: {script_analysis['title']}")
         print(f"   - 음성 길이: {script_analysis['duration']}초")
         
@@ -65,16 +69,35 @@ class ImageWorkflow:
                 else:
                     print("   - 로컬 GPT 연결 실패, 대체 프롬프트 사용")
                     image_prompts = self._generate_fallback_prompts(script_analysis['script_text'], num_keyframes)
+                    self.gpt_service.last_analysis_source = 'fallback'
             else:
                 print("   - GPT 서비스 사용")
                 image_prompts = self.gpt_service.analyze_script_for_images(
                     script_analysis['script_text'], 
                     num_keyframes
                 )
-        except Exception as e:
-            print(f"   - GPT 프롬프트 생성 실패: {e}")
+        except Exception:
+            print("   - GPT 프롬프트 생성 실패")
             print("   - 대체 프롬프트 사용")
             image_prompts = self._generate_fallback_prompts(script_analysis['script_text'], num_keyframes)
+            self.gpt_service.last_analysis_source = 'fallback'
+
+        expected_scenes = list(range(1, num_keyframes + 1))
+        prompt_scenes = [
+            prompt.get('scene_number')
+            for prompt in image_prompts
+            if isinstance(prompt, dict)
+        ] if isinstance(image_prompts, list) else []
+        if (
+            len(prompt_scenes) != len(expected_scenes)
+            or any(type(scene) is not int for scene in prompt_scenes)
+            or sorted(prompt_scenes) != expected_scenes
+        ):
+            image_prompts = self._generate_fallback_prompts(
+                script_analysis['script_text'],
+                num_keyframes,
+            )
+            self.gpt_service.last_analysis_source = 'fallback'
         
         print(f"   - 생성된 프롬프트 수: {len(image_prompts)}")
         
@@ -84,6 +107,26 @@ class ImageWorkflow:
             image_prompts, 
             self.images_dir
         )
+        if not isinstance(generated_images, list):
+            raise RuntimeError("이미지 생성 서비스가 올바르지 않은 결과를 반환했습니다.")
+        expected_scenes = {prompt.get('scene_number') for prompt in image_prompts}
+        generated_scenes = {image.get('scene_number') for image in generated_images}
+        image_paths = [
+            image.get(path_key)
+            for image in generated_images
+            for path_key in ('base_image', 'infographic_image')
+        ]
+        image_files_valid = all(
+            isinstance(path, str) and os.path.isfile(path) and os.path.getsize(path) > 0
+            for path in image_paths
+        )
+        images_complete = (
+            expected_scenes == generated_scenes
+            and image_files_valid
+            and len(generated_images) == len(image_prompts)
+        )
+        if not images_complete:
+            raise RuntimeError("이미지 생성 서비스가 모든 장면의 유효한 이미지 파일을 반환하지 않았습니다.")
         
         # 5단계: 키프레임 정보 업데이트
         print("5단계: 키프레임 정보 업데이트 중...")
@@ -91,7 +134,7 @@ class ImageWorkflow:
             scene_number = img_data['scene_number']
             self.keyframe_manager.update_keyframe_status(
                 scene_number,
-                'completed',
+                'completed' if img_data.get('source') == 'external' else 'fallback',
                 img_data['base_image'],
                 img_data['infographic_image']
             )
@@ -102,8 +145,18 @@ class ImageWorkflow:
         
         print("=== 이미지 생성 워크플로우 완료 ===")
         
+        ai_source = getattr(self.gpt_service, 'last_analysis_source', 'unknown')
+        image_source = (
+            'external'
+            if all(item.get('source') == 'external' for item in generated_images)
+            else 'fallback'
+        )
+        fully_external = image_source == 'external' and ai_source in ('ollama', 'openai')
         return {
             'success': True,
+            'status': 'completed' if fully_external else 'completed_with_fallback',
+            'ai_source': ai_source,
+            'image_source': image_source,
             'script_analysis': script_analysis,
             'keyframe_calculation': keyframe_calculation,
             'image_prompts': image_prompts,
@@ -136,17 +189,27 @@ class ImageWorkflow:
             scene_number,
             self.images_dir
         )
+        base_source = getattr(self.google_flow_service, 'last_generation_source', 'unknown')
         
         infographic_image = self.google_flow_service.generate_infographic_image(
             prompt_data['infographic_prompt'],
             scene_number,
             self.images_dir
         )
-        
+        infographic_source = getattr(self.google_flow_service, 'last_generation_source', 'unknown')
+        image_source = (
+            'external'
+            if base_source == 'external' and infographic_source == 'external'
+            else 'fallback'
+        )
+
         return {
             'scene_number': scene_number,
             'base_image': base_image,
             'infographic_image': infographic_image,
+            'source': image_source,
+            'base_image_source': base_source,
+            'infographic_image_source': infographic_source,
             'prompt_data': prompt_data
         }
     
@@ -172,17 +235,24 @@ class ImageWorkflow:
             scene_number,
             self.images_dir
         )
+        base_source = getattr(self.google_flow_service, 'last_generation_source', 'unknown')
         
         infographic_image = self.google_flow_service.generate_infographic_image(
             new_prompts['infographic_prompt'],
             scene_number,
             self.images_dir
         )
+        infographic_source = getattr(self.google_flow_service, 'last_generation_source', 'unknown')
+        image_source = (
+            'external'
+            if base_source == 'external' and infographic_source == 'external'
+            else 'fallback'
+        )
         
         # 키프레임 정보 업데이트
         self.keyframe_manager.update_keyframe_status(
             scene_number,
-            'completed',
+            'completed' if image_source == 'external' else 'fallback',
             base_image,
             infographic_image
         )
@@ -191,6 +261,9 @@ class ImageWorkflow:
             'scene_number': scene_number,
             'base_image': base_image,
             'infographic_image': infographic_image,
+            'source': image_source,
+            'base_image_source': base_source,
+            'infographic_image_source': infographic_source,
             'prompts': new_prompts
         }
     

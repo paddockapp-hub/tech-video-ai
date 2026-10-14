@@ -31,7 +31,7 @@ pip install -r requirements.txt
 ```bash
 # Ollama 설치 (https://ollama.ai)
 # 모델 다운로드
-ollama pull llama3.2
+ollama pull llama3.2:latest
 
 # Ollama 서버 실행
 ollama serve
@@ -43,7 +43,7 @@ ollama serve
 # 로컬 AI 설정
 USE_LOCAL_AI=true
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama3.2
+OLLAMA_MODEL=llama3.2:latest
 
 # Google API 설정
 GOOGLE_API_KEY=your_google_api_key_here
@@ -170,11 +170,12 @@ engineering-shorts-generator/
 
 ## 🔍 기술 스택
 
-- **AI**: Ollama (Llama3.2) + Google Flow
+- **AI**: Ollama (Llama3.2) + GPT
+- **이미지**: Google Flow/Imagen fallback (외부 이미지 provider 미연동)
 - **비디오**: MoviePy
-- **TTS**: Google Cloud TTS
+- **TTS**: ElevenLabs, Google Cloud TTS, gTTS fallback
 - **인증**: Firebase Authentication, GitHub OAuth
-- **스토리지**: Firebase Storage, AWS S3, 로컬 스토리지
+- **스토리지**: Vercel Blob, Firebase Storage, AWS S3, 로컬 스토리지
 - **웹 서버**: Flask
 - **배포**: Vercel
 - **파이썬**: 3.12+
@@ -185,10 +186,18 @@ engineering-shorts-generator/
 |------|------|--------|
 | USE_LOCAL_AI | 로컬 AI 사용 여부 | true |
 | OLLAMA_HOST | Ollama 서버 주소 | http://localhost:11434 |
-| OLLAMA_MODEL | Ollama 모델 | llama3.2 |
+| OLLAMA_MODEL | Ollama 모델 | llama3.2:latest |
+| TTS_PROVIDER | 음성 생성 provider | 설정값 또는 자동 선택 |
+| TTS_LANGUAGE | 음성 언어 코드 | ko |
+| TTS_VOICE | ElevenLabs 음성 ID | - |
 | GOOGLE_API_KEY | Google API 키 | - |
+| BLOB_READ_WRITE_TOKEN | Vercel Blob 업로드 토큰 | - |
 | VIDEO_DURATION | 비디오 길이 (초) | 30 |
 | FPS | 프레임 레이트 | 30 |
+
+생성 결과는 실제 provider 응답과 fallback을 구분합니다. 현재 Google Flow/Imagen 연결은
+미구현 상태이므로 이미지 fallback은 실제 생성 이미지로 표시되지 않습니다. MP4 생성은
+MoviePy 인코딩이 끝나고 결과 파일에서 비디오 프레임을 확인한 경우에만 완료로 처리합니다.
 
 ## 🐛 문제 해결
 

@@ -25,29 +25,21 @@ except ImportError:
 class GoogleFlowService:
     def __init__(self, config: Dict):
         self.config = config
+        self.last_generation_source = 'none'
+        self.last_error = None
         try:
             genai.configure(api_key=config.get('google_api_key'))
-        except Exception as e:
-            print(f"Google API 설정 실패: {e}")
+        except Exception:
+            print("Google API 설정에 실패했습니다.")
         self.model_name = config.get('google_model', 'gemini-pro')
         
     def generate_image_with_imagen(self, prompt: str, output_path: str, 
                                    width: int = 1080, height: int = 1920) -> bool:
         """Imagen을 사용하여 이미지 생성"""
         
-        try:
-            # Google Cloud Vertex AI Imagen API 호출
-            # (실제 구현 시 Vertex AI API 사용 필요)
-            
-            # 현재는 시뮬레이션용으로 더미 이미지 생성
-            self._create_dummy_image(output_path, width, height, prompt)
-            
-            print(f"이미지 생성 완료: {output_path}")
-            return True
-            
-        except Exception as e:
-            print(f"이미지 생성 중 오류 발생: {e}")
-            return False
+        self.last_generation_source = 'fallback'
+        self.last_error = 'image-provider-not-configured'
+        return False
     
     def generate_with_gemini_pro_vision(self, prompt: str, output_path: str) -> bool:
         """Gemini Pro Vision을 사용하여 이미지 생성 및 분석"""
@@ -62,14 +54,18 @@ class GoogleFlowService:
             # 생성된 이미지 저장
             if response.parts and hasattr(response.parts[0], 'image'):
                 image_data = response.parts[0].image
+                if not image_data:
+                    return False
                 with open(output_path, 'wb') as f:
                     f.write(image_data)
+                self.last_generation_source = 'external'
+                self.last_error = None
                 return True
             
             return False
             
-        except Exception as e:
-            print(f"Gemini Pro Vision 이미지 생성 중 오류 발생: {e}")
+        except Exception:
+            print("Gemini Pro Vision 이미지 생성에 실패했습니다.")
             return False
     
     def generate_base_image(self, prompt: str, scene_number: int, output_dir: str) -> str:
@@ -96,6 +92,8 @@ Style requirements:
             return output_path
         else:
             # 실패 시 대용 이미지 생성
+            self.last_generation_source = 'fallback'
+            self.last_error = 'image-provider-not-configured'
             return self._create_dummy_image(output_path, 1080, 1920, prompt)
     
     def generate_infographic_image(self, prompt: str, scene_number: int, output_dir: str) -> str:
@@ -123,6 +121,8 @@ Style requirements:
             return output_path
         else:
             # 실패 시 대용 이미지 생성
+            self.last_generation_source = 'fallback'
+            self.last_error = 'image-provider-not-configured'
             return self._create_dummy_image(output_path, 1080, 1920, prompt)
     
     def _create_dummy_image(self, output_path: str, width: int, height: int, text: str) -> str:
@@ -197,14 +197,25 @@ Style requirements:
             
             # 기본 이미지 생성
             base_image_path = self.generate_base_image(base_prompt, scene_number, output_dir)
+            base_image_source = self.last_generation_source
             
             # 인포그래픽 이미지 생성
             infographic_image_path = self.generate_infographic_image(infographic_prompt, scene_number, output_dir)
+            infographic_image_source = self.last_generation_source
+            scene_source = (
+                'external'
+                if base_image_source == 'external' and infographic_image_source == 'external'
+                else 'fallback'
+            )
+            self.last_generation_source = scene_source
             
             results.append({
                 'scene_number': scene_number,
                 'base_image': base_image_path,
                 'infographic_image': infographic_image_path,
+                'source': scene_source,
+                'base_image_source': base_image_source,
+                'infographic_image_source': infographic_image_source,
                 'description': prompt_data.get('description', ''),
                 'engineering_concept': prompt_data.get('engineering_concept', '')
             })

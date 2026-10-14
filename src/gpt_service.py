@@ -12,8 +12,11 @@ import json
 class GPTService:
     def __init__(self, config: Dict):
         self.config = config
-        self.client = OpenAI(api_key=config.get('openai_api_key'))
+        api_key = config.get('openai_api_key')
+        self.client = OpenAI(api_key=api_key) if api_key else None
         self.model = config.get('openai_model', 'gpt-4')
+        self.last_generation_source = 'none'
+        self.last_analysis_source = 'none'
         
     def analyze_script_for_images(self, script_text: str, num_keyframes: int) -> List[Dict]:
         """스크립트를 분석하여 각 키프레임에 대한 이미지 프롬프트 생성"""
@@ -36,6 +39,8 @@ class GPTService:
 """
         
         try:
+            if self.client is None:
+                raise RuntimeError("OpenAI API key is not configured.")
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -50,15 +55,21 @@ class GPTService:
             
             # 응답이 리스트 형식이 아니면 keyframes 필드 확인
             if isinstance(result, dict) and 'keyframes' in result:
-                return result['keyframes']
+                result = result['keyframes']
             elif isinstance(result, list):
-                return result
+                pass
             else:
                 # 단일 객체인 경우 리스트로 변환
-                return [result]
-                
-        except Exception as e:
-            print(f"GPT API 호출 중 오류 발생: {e}")
+                result = [result]
+            if not isinstance(result, list) or len(result) != num_keyframes:
+                raise ValueError("GPT 응답의 키프레임 수가 요청과 일치하지 않습니다.")
+            self.last_generation_source = 'openai'
+            self.last_analysis_source = 'openai'
+            return result
+        except Exception:
+            print(f"GPT API 호출 실패; fallback 프롬프트를 사용합니다.")
+            self.last_generation_source = 'fallback'
+            self.last_analysis_source = 'fallback'
             return self._generate_fallback_prompts(script_text, num_keyframes)
     
     def _generate_fallback_prompts(self, script_text: str, num_keyframes: int) -> List[Dict]:
@@ -72,7 +83,8 @@ class GPTService:
                 "base_prompt": f"Engineering visualization scene {i+1}, clean background, professional style",
                 "infographic_prompt": f"Engineering visualization scene {i+1} with detailed infographics and diagrams",
                 "visual_elements": ["engineering elements", "technical diagrams"],
-                "engineering_concept": "Engineering concept visualization"
+                "engineering_concept": "Engineering concept visualization",
+                "source": "fallback"
             })
         
         return fallback_prompts
@@ -93,6 +105,9 @@ class GPTService:
 """
         
         try:
+            if self.client is None:
+                self.last_generation_source = 'fallback'
+                return clips_info
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -104,10 +119,16 @@ class GPTService:
             )
             
             result = json.loads(response.choices[0].message.content)
-            return result.get('organized_clips', clips_info)
+            organized = result.get('organized_clips') if isinstance(result, dict) else None
+            if isinstance(organized, list) and organized:
+                self.last_generation_source = 'openai'
+                return organized
+            self.last_generation_source = 'fallback'
+            return clips_info
             
         except Exception as e:
-            print(f"클립 순서 정리 중 오류 발생: {e}")
+            print("클립 순서 정리 실패; 입력 순서를 유지합니다.")
+            self.last_generation_source = 'fallback'
             return clips_info
     
     def enhance_script(self, script_text: str) -> str:
@@ -126,6 +147,8 @@ class GPTService:
 """
         
         try:
+            if self.client is None:
+                return script_text
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -137,6 +160,6 @@ class GPTService:
             
             return response.choices[0].message.content
             
-        except Exception as e:
-            print(f"스크립트 향상 분석 중 오류 발생: {e}")
+        except Exception:
+            print("스크립트 향상 분석에 실패했습니다.")
             return script_text

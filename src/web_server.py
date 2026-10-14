@@ -55,7 +55,7 @@ class WebServer:
         
         # Ollama 서비스 초기화
         ollama_host = self.config.get('ollama_host', 'http://localhost:11434')
-        ollama_model = self.config.get('ollama_model', 'llama3.2')
+        ollama_model = self.config.get('ollama_model', 'llama3.2:latest')
         self.ollama_service = OllamaService(host=ollama_host, model=ollama_model)
     
     def _setup_routes(self):
@@ -181,13 +181,16 @@ class WebServer:
             
             try:
                 result = self.ollama_service.generate_text(prompt, model)
+                used_ollama = self.ollama_service.last_generation_source == 'ollama'
                 return jsonify({
-                    'success': True,
+                    'success': used_ollama,
                     'response': result,
-                    'model': model or self.ollama_service.model
+                    'model': self.ollama_service.model if used_ollama else None,
+                    'source': self.ollama_service.last_generation_source,
+                    'error': self.ollama_service.last_error,
                 })
-            except Exception as e:
-                return jsonify({'success': False, 'error': str(e)})
+            except Exception:
+                return jsonify({'success': False, 'error': 'Ollama generation failed.'}), 502
         
         @self.app.route('/ollama/analyze-script', methods=['POST'])
         def ollama_analyze_script():
@@ -201,13 +204,16 @@ class WebServer:
             
             try:
                 result = self.ollama_service.analyze_script_for_images(script_text, num_keyframes)
+                used_ollama = self.ollama_service.last_analysis_source == 'ollama'
                 return jsonify({
-                    'success': True,
+                    'success': used_ollama,
                     'keyframes': result,
-                    'num_keyframes': len(result)
+                    'num_keyframes': len(result),
+                    'source': self.ollama_service.last_analysis_source,
+                    'error': self.ollama_service.last_error,
                 })
-            except Exception as e:
-                return jsonify({'success': False, 'error': str(e)})
+            except Exception:
+                return jsonify({'success': False, 'error': 'Ollama analysis failed.'}), 502
         
         @self.app.route('/ollama/status', methods=['GET'])
         def ollama_status():
@@ -217,14 +223,16 @@ class WebServer:
                 available_models = self.ollama_service.get_available_models()
                 
                 return jsonify({
-                    'success': True,
+                    'success': is_connected,
                     'connected': is_connected,
-                    'host': self.ollama_service.host,
-                    'model': self.ollama_service.model,
-                    'available_models': available_models
+                    'model': self.ollama_service.model if is_connected else None,
+                    'available_models': available_models,
+                    'status': self.ollama_service.status,
+                    'source': self.ollama_service.selected_candidate.get('source') if is_connected else None,
+                    'candidates': self.ollama_service.candidate_statuses,
                 })
-            except Exception as e:
-                return jsonify({'success': False, 'error': str(e)})
+            except Exception:
+                return jsonify({'success': False, 'error': 'Ollama status check failed.'}), 502
     
     def run(self, host='0.0.0.0', port=8000, debug=False):
         """서버 실행"""

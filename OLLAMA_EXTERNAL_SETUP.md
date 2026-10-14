@@ -37,8 +37,20 @@ https://abc123.ngrok-free.app
 #### 6단계: OLLAMA_BASE_URL 설정
 ```env
 OLLAMA_BASE_URL=https://abc123.ngrok-free.app
-OLLAMA_MODEL=llama3.2
+OLLAMA_MODEL=llama3.2:latest
 ```
+
+서버는 설정된 Ollama 후보들의 `/api/version`과 `/api/tags`를 실제 호출해 확인하며,
+설정 모델 이름과 설치 모델 이름이 정확히 일치하는 후보만 생성에 사용합니다.
+잘못된 터널은 `tunnel-not-ollama`, 연결할 수 없는 서버는 `ollama-unreachable`,
+설치되지 않은 모델은 `model-not-installed` 상태로 구분됩니다. 후보값이 `process.env.NAME`
+형식이면 환경변수에서 다시 읽으며, 순환 참조는 후보에서 제외됩니다.
+
+먼저 확인하는 후보는 `OLLAMA_BASE_URL_10_3_2` + `OLLAMA_MODEL_8_3_2`,
+`OLLAMA_BASE_URL_10_3` + `OLLAMA_MODEL_8_3`, `OLLAMA_BASE_URL_10_2` +
+`OLLAMA_MODEL_8_2`, `OLLAMA_BASE_URL_10` + `OLLAMA_MODEL_8`, 그 다음 기본 URL/모델 쌍입니다.
+텍스트 생성 API는 Ollama의 JSON 출력 모드를 사용합니다. 연결이나 모델 확인에 실패하면
+기존 fallback을 사용할 수 있지만, 응답에는 fallback source가 구분되어 표시됩니다.
 
 ### 방법 2: 로컬 네트워크 공유 (단순)
 

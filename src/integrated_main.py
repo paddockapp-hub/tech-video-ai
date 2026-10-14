@@ -9,6 +9,7 @@ import argparse
 import json
 from typing import Dict
 from dotenv import load_dotenv
+from env_utils import get_env_value, resolve_config_values
 
 # 현재 디렉토리를 경로에 추가
 sys.path.insert(0, os.path.dirname(__file__))
@@ -55,38 +56,46 @@ class IntegratedSystem:
         """설정 파일 로드"""
         
         default_config = {
-            'openai_api_key': os.getenv('OPENAI_API_KEY'),
-            'openai_model': os.getenv('OPENAI_MODEL', 'gpt-4'),
-            'google_api_key': os.getenv('GOOGLE_API_KEY'),
-            'google_model': os.getenv('GOOGLE_MODEL', 'gemini-pro'),
-            'google_tts_enabled': os.getenv('GOOGLE_TTS_ENABLED', 'false').lower() == 'true',
-            'video_duration': int(os.getenv('VIDEO_DURATION', 30)),
-            'fps': int(os.getenv('FPS', 30)),
-            'image_width': int(os.getenv('IMAGE_WIDTH', 1080)),
-            'image_height': int(os.getenv('IMAGE_HEIGHT', 1920)),
-            'output_dir': os.getenv('OUTPUT_DIR', 'output'),
-            'temp_dir': os.getenv('TEMP_DIR', 'temp'),
+            'openai_api_key': get_env_value('OPENAI_API_KEY'),
+            'openai_model': get_env_value('OPENAI_MODEL', 'gpt-4'),
+            'google_api_key': get_env_value('GOOGLE_API_KEY'),
+            'google_model': get_env_value('GOOGLE_MODEL', 'gemini-pro'),
+            'google_tts_enabled': (get_env_value('GOOGLE_TTS_ENABLED', 'false') or 'false').lower() == 'true',
+            'video_duration': int(get_env_value('VIDEO_DURATION', '30') or '30'),
+            'fps': int(get_env_value('FPS', '30') or '30'),
+            'image_width': int(get_env_value('IMAGE_WIDTH', '1080') or '1080'),
+            'image_height': int(get_env_value('IMAGE_HEIGHT', '1920') or '1920'),
+            'output_dir': get_env_value('OUTPUT_DIR', 'output'),
+            'temp_dir': get_env_value('TEMP_DIR', 'temp'),
             # 로컬 AI 설정
-            'use_local_ai': os.getenv('USE_LOCAL_AI', 'false').lower() == 'true',
-            'ollama_host': os.getenv('OLLAMA_HOST', 'http://localhost:11434'),
-            'ollama_model': os.getenv('OLLAMA_MODEL', 'llama3.2'),
-            'sd_host': os.getenv('SD_HOST', 'http://127.0.0.1:7860'),
+            'use_local_ai': (get_env_value('USE_LOCAL_AI', 'false') or 'false').lower() == 'true',
+            'ollama_host': get_env_value('OLLAMA_HOST', 'http://localhost:11434'),
+            'ollama_model': get_env_value('OLLAMA_MODEL', 'llama3.2:latest'),
+            'tts_api_key': get_env_value('TTS_API_KEY') or get_env_value('apiKey'),
+            'tts_provider': get_env_value('TTS_PROVIDER'),
+            'tts_language': get_env_value('TTS_LANGUAGE'),
+            'tts_voice': get_env_value('TTS_VOICE'),
+            'sd_host': get_env_value('SD_HOST', 'http://127.0.0.1:7860'),
             # 인증 설정
-            'firebase_enabled': os.getenv('FIREBASE_ENABLED', 'false').lower() == 'true',
-            'firebase_key_path': os.getenv('FIREBASE_KEY_PATH'),
-            'github_enabled': os.getenv('GITHUB_ENABLED', 'false').lower() == 'true',
-            'github_client_id': os.getenv('GITHUB_CLIENT_ID'),
-            'github_client_secret': os.getenv('GITHUB_CLIENT_SECRET'),
-            'github_redirect_uri': os.getenv('GITHUB_REDIRECT_URI', 'http://localhost:8000/auth/github/callback'),
+            'firebase_enabled': (get_env_value('FIREBASE_ENABLED', 'false') or 'false').lower() == 'true',
+            'firebase_key_path': get_env_value('FIREBASE_KEY_PATH'),
+            'github_enabled': (get_env_value('GITHUB_ENABLED', 'false') or 'false').lower() == 'true',
+            'github_client_id': get_env_value('GITHUB_CLIENT_ID'),
+            'github_client_secret': get_env_value('GITHUB_CLIENT_SECRET'),
+            'github_redirect_uri': get_env_value('GITHUB_REDIRECT_URI', 'http://localhost:8000/auth/github/callback'),
             # 스토리지 설정
-            'storage_type': os.getenv('STORAGE_TYPE', 'local'),
-            'local_storage_dir': os.getenv('LOCAL_STORAGE_DIR', 'uploads'),
-            's3_bucket_name': os.getenv('S3_BUCKET_NAME'),
-            'aws_access_key_id': os.getenv('AWS_ACCESS_KEY_ID'),
-            'aws_secret_access_key': os.getenv('AWS_SECRET_ACCESS_KEY'),
-            'aws_region': os.getenv('AWS_REGION', 'us-east-1'),
+            'storage_type': get_env_value(
+                'STORAGE_TYPE',
+                'vercel' if get_env_value('BLOB_READ_WRITE_TOKEN') else 'local'
+            ),
+            'blob_read_write_token': get_env_value('BLOB_READ_WRITE_TOKEN'),
+            'local_storage_dir': get_env_value('LOCAL_STORAGE_DIR', 'uploads'),
+            's3_bucket_name': get_env_value('S3_BUCKET_NAME'),
+            'aws_access_key_id': get_env_value('AWS_ACCESS_KEY_ID'),
+            'aws_secret_access_key': get_env_value('AWS_SECRET_ACCESS_KEY'),
+            'aws_region': get_env_value('AWS_REGION', 'us-east-1'),
             # 웹 서버 설정
-            'secret_key': os.getenv('SECRET_KEY', 'engineering-shorts-secret')
+            'secret_key': get_env_value('SECRET_KEY', 'engineering-shorts-secret')
         }
         
         if config_path and os.path.exists(config_path):
@@ -97,7 +106,7 @@ class IntegratedSystem:
             except Exception as e:
                 print(f"설정 파일 로드 중 오류: {e}")
         
-        return default_config
+        return resolve_config_values(default_config)
     
     def generate_authenticated_video(self, script_file_path: str, user_id: str) -> Dict:
         """인증된 사용자의 비디오 생성"""
@@ -132,23 +141,41 @@ class IntegratedSystem:
             if audio_file and os.path.exists(audio_file):
                 audio_upload = self.storage_service.upload_file(
                     audio_file,
-                    f"audio/{user_id}/{os.path(audio_file)}",
+                    f"audio/{user_id}/{os.path.basename(audio_file)}",
                     {'user_id': user_id, 'type': 'audio'}
                 )
                 upload_results.append(audio_upload)
             
+            video_uploaded = bool(video_file) and any(
+                result.get('success') is True and result.get('storage_path', '').startswith('videos/')
+                for result in upload_results
+            )
+            uploads_succeeded = (
+                video_uploaded
+                and all(result.get('success') is True for result in upload_results)
+            )
+            completion_status = (
+                'completed_with_fallback'
+                if (
+                    video_result.get('status') == 'completed_with_fallback'
+                    or any(result.get('fallback_used') for result in upload_results)
+                )
+                else 'completed'
+            )
             return {
-                'success': True,
+                'success': uploads_succeeded,
+                'status': completion_status if uploads_succeeded else 'upload-failed',
                 'user_id': user_id,
                 'video_result': video_result,
                 'upload_results': upload_results,
-                'message': '인증된 비디오 생성 완료'
+                'message': '인증된 비디오 생성 및 업로드 완료' if uploads_succeeded else '비디오 생성 후 업로드가 완료되지 않았습니다.'
             }
             
         except Exception as e:
             return {
                 'success': False,
-                'error': f'인증된 비디오 생성 실패: {str(e)}',
+                'error': '인증된 비디오 생성이 완료되지 않았습니다.',
+                'error_type': type(e).__name__,
                 'user_id': user_id
             }
     
