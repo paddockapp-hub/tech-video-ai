@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import urlsplit
 
 import requests
@@ -166,7 +166,11 @@ def _verify_local_ollama(model: str) -> str:
     return expected
 
 
-def _run_cloudflared(auth_token: str, model_name: str) -> int:
+def _run_cloudflared(
+    auth_token: str,
+    model_name: str,
+    on_tunnel_url: Optional[Callable[[str], None]] = None,
+) -> int:
     executable = shutil.which("cloudflared")
     if not executable:
         raise RuntimeError(
@@ -202,6 +206,8 @@ def _run_cloudflared(auth_token: str, model_name: str) -> int:
             if match and not public_url:
                 public_url = match.group(0)
                 print(f"OLLAMA_TUNNEL_URL={public_url}", flush=True)
+                if on_tunnel_url:
+                    on_tunnel_url(public_url)
                 print("Ollama tunnel is active; keep this process running.", flush=True)
         return process.wait()
     except KeyboardInterrupt:

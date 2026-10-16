@@ -65,6 +65,9 @@ TTS_LANGUAGE=ko-KR
 For remote Preview access to a local Ollama instance, use the authenticated
 [Cloudflare tunnel setup](OLLAMA_EXTERNAL_SETUP.md); do not expose port 11434
 directly.
+On Windows, the one-command setup is `.\scripts\start-preview-tunnel.ps1`.
+It copies the Preview variables to the clipboard when the tunnel is ready;
+after redeploying Preview, verify with `python -m scripts.verify_remote_services`.
 
 If ElevenLabs rejects a request or is unavailable, the generator may use gTTS
 as an explicitly marked fallback. Its result includes the provider and a

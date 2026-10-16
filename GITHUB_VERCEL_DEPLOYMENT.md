@@ -66,6 +66,7 @@ OLLAMA_MODEL=llama3.2:latest
 OLLAMA_BASE_URL_10_3_2=https://<assigned-host>.trycloudflare.com
 OLLAMA_MODEL_8_3_2=llama3.2:latest
 AUTH_TOKEN=<same strong token used by the authenticated local tunnel gateway>
+TTS_PROVIDER=elevenlabs
 TTS_API_KEY=<ElevenLabs API key>
 TTS_VOICE=<ElevenLabs voice ID>
 STORAGE_TYPE=local
@@ -86,7 +87,10 @@ After setting the same Preview values in a secure local environment, run
 `python -m scripts.verify_remote_services`. It prints only sanitized service
 statuses, checks that `/api/tags` is HTTP 200 JSON with the configured model,
 and checks that ElevenLabs `/v1/voices` is HTTP 200 JSON containing the
-configured voice. It returns a failure exit code unless both providers pass.
+configured voice. On the Windows Ollama host,
+`.\scripts\start-preview-tunnel.ps1` collects the key through hidden input,
+starts the tunnel, and copies the complete Preview variable block to the
+clipboard. It returns a failure exit code unless both providers pass.
 
 #### 4단계: 배포
 - "Deploy" 버튼 클릭

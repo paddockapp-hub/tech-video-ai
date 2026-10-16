@@ -1,12 +1,16 @@
 import threading
 import unittest
+import tempfile
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import requests
 
+from dotenv import dotenv_values
 from src.ollama_service import OllamaService
 from src.ollama_tunnel import OllamaTunnelHandler
+from scripts.prepare_preview import prepare_preview
 
 
 class OllamaTunnelTests(unittest.TestCase):
@@ -81,6 +85,46 @@ class OllamaTunnelTests(unittest.TestCase):
                 OllamaService._request_headers("http://localhost:11434"),
                 {},
             )
+
+    @patch("scripts.prepare_preview.secrets.token_urlsafe", return_value="generated-token")
+    @patch("scripts.prepare_preview._verify_local_ollama", return_value="llama3.2:latest")
+    def test_preview_setup_saves_local_values_and_copies_them_without_printing_secrets(
+        self,
+        _verify_ollama,
+        _make_token,
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = Path(directory) / ".env"
+            copied = []
+
+            def run_tunnel(token, model, on_tunnel_url):
+                self.assertEqual(token, "generated-token")
+                self.assertEqual(model, "llama3.2:latest")
+                on_tunnel_url("https://test.trycloudflare.com")
+                return 0
+
+            with patch("builtins.print") as output:
+                result = prepare_preview(
+                    "test-api-key",
+                    "test-voice-id",
+                    env_path=env_path,
+                    tunnel_runner=run_tunnel,
+                    clipboard_writer=copied.append,
+                )
+
+            saved = dotenv_values(env_path)
+            self.assertEqual(result, 0)
+            self.assertEqual(saved["AUTH_TOKEN"], "generated-token")
+            self.assertEqual(saved["TTS_API_KEY"], "test-api-key")
+            self.assertEqual(saved["TTS_VOICE"], "test-voice-id")
+            self.assertEqual(saved["OLLAMA_BASE_URL"], "https://test.trycloudflare.com")
+            self.assertEqual(len(copied), 1)
+            self.assertIn("OLLAMA_BASE_URL=https://test.trycloudflare.com", copied[0])
+            self.assertIn("TTS_PROVIDER=elevenlabs", copied[0])
+            self.assertIn("TTS_API_KEY=test-api-key", copied[0])
+            self.assertIn("AUTH_TOKEN=generated-token", copied[0])
+            self.assertNotIn("test-api-key", repr(output.call_args_list))
+            self.assertNotIn("generated-token", repr(output.call_args_list))
 
 
 if __name__ == "__main__":

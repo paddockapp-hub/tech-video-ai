@@ -4,7 +4,39 @@ The tunnel gateway keeps Ollama bound to `127.0.0.1:11434`; it does not expose
 Ollama's unauthenticated port directly. A Cloudflare Quick Tunnel forwards only
 the authenticated Ollama API routes through a local gateway.
 
-## One-time setup
+## One-command setup
+
+From the repository root, run this in a new PowerShell window:
+
+```powershell
+.\scripts\start-preview-tunnel.ps1
+```
+
+The command verifies the local Ollama model, then prompts for a newly rotated
+ElevenLabs API key using hidden input and a voice ID. It saves them only to the
+ignored local `.env`, generates a strong tunnel token, and starts the
+authenticated Cloudflare Quick Tunnel. It does not print the API key or token.
+Once the tunnel URL is ready, it copies the complete Preview environment block
+to the clipboard automatically. Paste that block into Vercel → Project →
+Settings → Environment Variables, selecting Preview for each variable.
+
+Keep the PowerShell window open. After adding the variables, redeploy the
+Preview deployment from Vercel. When deployment completes, run this in another
+PowerShell window to verify both services without printing credentials:
+
+```powershell
+python -m scripts.verify_remote_services
+```
+
+The check returns success only when Ollama `/api/tags` is HTTP 200 JSON and
+contains the configured model, and ElevenLabs `/v1/voices` is HTTP 200 JSON
+containing the configured voice. If the Quick Tunnel restarts, the URL changes:
+copy the new Preview block from the setup command again and redeploy Preview.
+
+Use a newly rotated ElevenLabs key here. A key previously pasted into a chat
+should be revoked; this setup never reads it from the conversation.
+
+## Manual setup (optional)
 
 1. Install Cloudflare Tunnel (`cloudflared`) on the Ollama host:
 
@@ -26,7 +58,7 @@ the authenticated Ollama API routes through a local gateway.
    The tunnel refuses to start if the token is missing or shorter than 32
    characters. Do not commit `.env` or put the token in a URL.
 
-## Start the tunnel
+## Start the tunnel manually
 
 From the repository root, run:
 
