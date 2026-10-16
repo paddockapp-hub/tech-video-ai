@@ -191,6 +191,19 @@ class OllamaService:
         return parsed.username is not None or parsed.password is not None
 
     @staticmethod
+    def _request_headers(url: str) -> Dict[str, str]:
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname
+            and parsed.hostname.lower().endswith(".trycloudflare.com")
+        ):
+            token = get_env_value("AUTH_TOKEN")
+            if token:
+                return {"Authorization": f"Bearer {token}"}
+        return {}
+
+    @staticmethod
     def _installed_model_name(configured_model: str, installed_models: List[str]) -> Optional[str]:
         if configured_model in installed_models:
             return configured_model
@@ -206,11 +219,20 @@ class OllamaService:
             return False, "tunnel-not-ollama", []
 
         try:
-            version = self.session.get(f"{base_url}/api/version", timeout=self.timeout)
+            headers = self._request_headers(base_url)
+            version = self.session.get(
+                f"{base_url}/api/version",
+                headers=headers,
+                timeout=self.timeout,
+            )
         except requests.exceptions.RequestException:
             version = None
         try:
-            tags = self.session.get(f"{base_url}/api/tags", timeout=self.timeout)
+            tags = self.session.get(
+                f"{base_url}/api/tags",
+                headers=headers,
+                timeout=self.timeout,
+            )
         except requests.exceptions.RequestException:
             tags = None
         if version is None or tags is None:
@@ -311,6 +333,7 @@ class OllamaService:
                 raise OllamaUnavailableError("model-not-installed")
             response = self.session.post(
                 f"{candidate['url']}/api/generate",
+                headers=self._request_headers(candidate["url"]),
                 json={
                     "model": requested_model,
                     "prompt": prompt,

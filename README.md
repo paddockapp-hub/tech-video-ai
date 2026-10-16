@@ -62,6 +62,10 @@ TTS_VOICE=your_elevenlabs_voice_id
 TTS_LANGUAGE=ko-KR
 ```
 
+For remote Preview access to a local Ollama instance, use the authenticated
+[Cloudflare tunnel setup](OLLAMA_EXTERNAL_SETUP.md); do not expose port 11434
+directly.
+
 If ElevenLabs rejects a request or is unavailable, the generator may use gTTS
 as an explicitly marked fallback. Its result includes the provider and a
 non-sensitive `provider_error` code; credentials and provider response bodies

@@ -62,12 +62,21 @@ Vercel Dashboard → Settings → Environment Variables:
 
 ```env
 USE_LOCAL_AI=true
-OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=llama3.2:latest
+OLLAMA_BASE_URL_10_3_2=https://<assigned-host>.trycloudflare.com
+OLLAMA_MODEL_8_3_2=llama3.2:latest
+AUTH_TOKEN=<same strong token used by the authenticated local tunnel gateway>
 STORAGE_TYPE=local
 FIREBASE_ENABLED=false
 GITHUB_ENABLED=false
 ```
+
+`localhost` in a Vercel environment refers to the Vercel runtime itself, not
+the developer's computer. For remote Ollama, run the authenticated local
+gateway described in [OLLAMA_EXTERNAL_SETUP.md](OLLAMA_EXTERNAL_SETUP.md) and
+set its current Quick Tunnel URL as `OLLAMA_BASE_URL_10_3_2`. The tunnel host
+and Vercel Preview must share the same `AUTH_TOKEN`. Redeploy Preview after
+updating the URL or token. Quick Tunnel URLs change when restarted.
 
 #### 4단계: 배포
 - "Deploy" 버튼 클릭
