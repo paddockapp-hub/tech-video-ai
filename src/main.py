@@ -193,6 +193,7 @@ class EngineeringShortsGenerator:
                     'provider': self.tts_service.last_provider,
                     'providers': self.tts_service.providers_used,
                     'used_fallback': self.tts_service.used_fallback,
+                    'provider_error': self.tts_service.last_error,
                 }
                 if results['steps']['audio_generation']['status'] != 'completed':
                     raise RuntimeError("TTS 서비스가 유효한 음성 파일을 만들지 않았습니다.")
@@ -280,6 +281,8 @@ class EngineeringShortsGenerator:
             print(f"오류 유형: {type(e).__name__}")
             results['error'] = '비디오 생성 워크플로우가 완료되지 않았습니다.'
             results['error_type'] = type(e).__name__
+            if self.tts_service.last_error:
+                results['tts_error'] = self.tts_service.last_error
         
         return results
     
@@ -322,7 +325,11 @@ class EngineeringShortsGenerator:
             return {
                 'success': True,
                 'audio_path': audio_path,
-                'script_text': script_analysis['script_text']
+                'script_text': script_analysis['script_text'],
+                'provider': self.tts_service.last_provider,
+                'providers': self.tts_service.providers_used,
+                'used_fallback': self.tts_service.used_fallback,
+                'provider_error': self.tts_service.last_error,
             }
             
         except Exception as e:
@@ -330,6 +337,7 @@ class EngineeringShortsGenerator:
                 'success': False,
                 'error': '음성 생성이 완료되지 않았습니다.',
                 'error_type': type(e).__name__,
+                'provider_error': self.tts_service.last_error,
             }
     
     def create_preview(self, script_file_path: str) -> Dict:

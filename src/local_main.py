@@ -182,6 +182,7 @@ class EngineeringShortsGenerator:
                     'success': False,
                     'error': 'TTS 생성이 완료되지 않았습니다.',
                     'error_type': type(e).__name__,
+                    'tts_error': self.tts_service.last_error,
                 }
             
             # 3단계: 비디오 편집
@@ -213,6 +214,7 @@ class EngineeringShortsGenerator:
                 ) else 'completed',
                 'audio_provider': self.tts_service.last_provider,
                 'audio_providers': self.tts_service.providers_used,
+                'audio_error': self.tts_service.last_error,
                 'image_result': image_result
             }
             

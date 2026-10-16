@@ -94,6 +94,56 @@ class ExternalServiceTests(unittest.TestCase):
             self.assertFalse(service.used_fallback)
             self.assertEqual(post.call_args.kwargs['headers']['xi-api-key'], 'test-token')
 
+    @patch('src.tts_service.requests.post')
+    def test_elevenlabs_unauthorized_response_is_reported_when_falling_back(self, post):
+        response = Mock(status_code=401, content=b'not exposed')
+        response.headers = {'Content-Type': 'application/json'}
+        post.return_value = response
+
+        with tempfile.TemporaryDirectory() as directory:
+            service = TTSService({
+                'output_dir': directory,
+                'temp_dir': directory,
+                'tts_api_key': 'test-token',
+                'tts_voice': 'voice-id',
+                'tts_provider': 'elevenlabs',
+            })
+
+            def create_fallback(_text, output_path, **_kwargs):
+                with open(output_path, 'wb') as audio_file:
+                    audio_file.write(b'fallback-audio')
+                service._record_provider('gtts')
+                return output_path
+
+            service.generate_speech_with_gtts = create_fallback
+            audio_path = service.generate_speech_from_script('테스트 음성')
+
+            self.assertTrue(os.path.isfile(audio_path))
+            self.assertTrue(service.used_fallback)
+            self.assertEqual(service.last_provider, 'gtts')
+            self.assertEqual(service.last_error, 'tts-unauthorized')
+            self.assertNotIn('not exposed', repr(service.last_error))
+
+    @patch.dict(os.environ, {
+        'TTS_API_KEY': 'process.env.ACTUAL_TTS_KEY',
+        'ACTUAL_TTS_KEY': 'test-resolved-key',
+        'TTS_PROVIDER': 'elevenlabs',
+        'TTS_VOICE': 'test-voice',
+    }, clear=False)
+    @patch('src.tts_service.requests.post')
+    def test_elevenlabs_resolves_environment_key_reference(self, post):
+        response = Mock(status_code=200, content=b'ID3-audio')
+        response.headers = {'Content-Type': 'audio/mpeg'}
+        post.return_value = response
+
+        with tempfile.TemporaryDirectory() as directory:
+            service = TTSService({'output_dir': directory, 'temp_dir': directory})
+            audio_path = service.generate_speech_from_script('테스트 음성')
+
+            self.assertTrue(os.path.isfile(audio_path))
+            self.assertEqual(service.last_provider, 'elevenlabs')
+            self.assertEqual(post.call_args.kwargs['headers']['xi-api-key'], 'test-resolved-key')
+
     def test_tts_does_not_return_success_for_a_missing_audio_file(self):
         with tempfile.TemporaryDirectory() as directory:
             service = TTSService({

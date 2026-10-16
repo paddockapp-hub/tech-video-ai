@@ -54,7 +54,18 @@ VIDEO_DURATION=30
 FPS=30
 IMAGE_WIDTH=1080
 IMAGE_HEIGHT=1920
+
+# ElevenLabs TTS (optional; the key is read from the environment, never hard-coded)
+TTS_PROVIDER=elevenlabs
+TTS_API_KEY=your_elevenlabs_api_key
+TTS_VOICE=your_elevenlabs_voice_id
+TTS_LANGUAGE=ko-KR
 ```
+
+If ElevenLabs rejects a request or is unavailable, the generator may use gTTS
+as an explicitly marked fallback. Its result includes the provider and a
+non-sensitive `provider_error` code; credentials and provider response bodies
+are not included.
 
 ## 🎯 사용법
 

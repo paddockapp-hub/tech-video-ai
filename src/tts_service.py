@@ -33,6 +33,7 @@ class TTSService:
         self.output_dir = config.get('output_dir', 'output')
         self.temp_dir = config.get('temp_dir', 'temp')
         self.last_provider = None
+        self.last_error = None
         self.providers_used = []
         self.used_fallback = False
         
@@ -171,8 +172,10 @@ class TTSService:
         )
         voice_id = self._voice_id()
         if not api_key:
+            self.last_error = "tts-not-configured"
             raise RuntimeError("ElevenLabs API key is not configured.")
         if not voice_id:
+            self.last_error = "tts-voice-not-configured"
             raise RuntimeError("ElevenLabs voice is not configured.")
         if output_path is None:
             output_path = os.path.join(self.output_dir, 'speech_elevenlabs.mp3')
@@ -196,13 +199,26 @@ class TTSService:
                 timeout=120,
             )
             content_type = response.headers.get('Content-Type', '').lower()
-            if response.status_code != 200 or not response.content or 'audio' not in content_type:
-                raise RuntimeError("ElevenLabs returned an unsuccessful audio response.")
+            if response.status_code != 200:
+                if response.status_code in (401, 403):
+                    self.last_error = "tts-unauthorized"
+                elif response.status_code == 429:
+                    self.last_error = "tts-rate-limited"
+                elif response.status_code >= 500:
+                    self.last_error = "tts-provider-unavailable"
+                else:
+                    self.last_error = "tts-request-rejected"
+                raise RuntimeError("ElevenLabs rejected the speech request.")
+            if not response.content or 'audio' not in content_type:
+                self.last_error = "tts-invalid-response"
+                raise RuntimeError("ElevenLabs returned an invalid audio response.")
             with open(output_path, 'wb') as output_file:
                 output_file.write(response.content)
             self._record_provider('elevenlabs')
+            self.last_error = None
             return output_path
         except requests.RequestException as exc:
+            self.last_error = "tts-unreachable"
             raise RuntimeError("ElevenLabs speech generation failed.") from exc
 
     def _configured_method(self, method: str) -> str:
@@ -327,6 +343,7 @@ class TTSService:
         method = self._configured_method(method)
         self.providers_used = []
         self.last_provider = None
+        self.last_error = None
         self.used_fallback = False
         if not self.gtts_available and method not in ('elevenlabs', 'eleven-labs', 'google'):
             raise RuntimeError("음성 생성 서비스를 사용할 수 없습니다.")
