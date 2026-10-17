@@ -23,8 +23,7 @@
   ],
   "env": {
     "USE_LOCAL_AI": "true",
-    "OLLAMA_HOST": "http://localhost:11434",
-    "OLLAMA_MODEL": "llama3.2",
+    "OLLAMA_MODEL": "llama3.2:latest",
     "STORAGE_TYPE": "local",
     "FIREBASE_ENABLED": "false",
     "GITHUB_ENABLED": "false"

@@ -16,6 +16,7 @@ class StableDiffusionService:
         self.host = host
         self.txt2img_url = f"{host}/sdapi/v1/txt2img"
         self.models_url = f"{host}/sdapi/v1/sd-models"
+        self.last_generation_source = 'none'
         
     def check_connection(self) -> bool:
         """Stable Diffusion 서버 연결 확인"""
@@ -47,9 +48,14 @@ class StableDiffusionService:
             
             if response.status_code == 200:
                 result = response.json()
+                images = result.get("images") if isinstance(result, dict) else None
+                if not isinstance(images, list) or not images or not images[0]:
+                    raise ValueError("Stable Diffusion returned no image.")
                 
                 # 이미지 디코딩 및 저장
-                image_data = base64.b64decode(result["images"][0])
+                image_data = base64.b64decode(images[0], validate=True)
+                with Image.open(io.BytesIO(image_data)) as image:
+                    image.verify()
                 
                 # 디렉토리 생성
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -57,14 +63,17 @@ class StableDiffusionService:
                 with open(output_path, "wb") as f:
                     f.write(image_data)
                 
+                self.last_generation_source = 'external'
                 print(f"이미지 생성 완료: {output_path}")
                 return True
             else:
                 print(f"Stable Diffusion API 오류: {response.status_code}")
+                self.last_generation_source = 'fallback'
                 return self._generate_dummy_image(output_path, prompt, width, height)
                 
         except Exception as e:
             print(f"Stable Diffusion 이미지 생성 중 오류: {e}")
+            self.last_generation_source = 'fallback'
             return self._generate_dummy_image(output_path, prompt, width, height)
     
     def generate_base_image(self, prompt: str, scene_number: int, output_dir: str) -> str:
@@ -99,6 +108,7 @@ graphs, labels, annotations, messy, cluttered, low quality
         if success:
             return output_path
         else:
+            self.last_generation_source = 'fallback'
             return self._generate_dummy_image(output_path, prompt, 1080, 1920)
     
     def generate_infographic_image(self, prompt: str, scene_number: int, output_dir: str) -> str:
@@ -134,6 +144,7 @@ cluttered, low quality, blurry, distorted
         if success:
             return output_path
         else:
+            self.last_generation_source = 'fallback'
             return self._generate_dummy_image(output_path, prompt, 1080, 1920)
     
     def batch_generate_images(self, prompts: List[Dict], output_dir: str) -> List[Dict]:
@@ -148,14 +159,24 @@ cluttered, low quality, blurry, distorted
             
             # 기본 이미지 생성
             base_image_path = self.generate_base_image(base_prompt, scene_number, output_dir)
+            base_source = self.last_generation_source
             
             # 인포그래픽 이미지 생성
             infographic_image_path = self.generate_infographic_image(infographic_prompt, scene_number, output_dir)
+            infographic_source = self.last_generation_source
+            scene_source = (
+                'external'
+                if base_source == 'external' and infographic_source == 'external'
+                else 'fallback'
+            )
             
             results.append({
                 'scene_number': scene_number,
                 'base_image': base_image_path,
                 'infographic_image': infographic_image_path,
+                'source': scene_source,
+                'base_image_source': base_source,
+                'infographic_image_source': infographic_source,
                 'description': prompt_data.get('description', ''),
                 'engineering_concept': prompt_data.get('engineering_concept', '')
             })

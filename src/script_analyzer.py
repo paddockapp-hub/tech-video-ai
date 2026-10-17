@@ -72,8 +72,7 @@ class ScriptAnalyzer:
         script_text = self._extract_script_text(content)
         char_count = len(script_text)
         estimated_duration = int(char_count / 5)  # 대략적인 추정
-        
-        return estimated_duration
+        return max(1, estimated_duration) if script_text.strip() else 0
     
     def calculate_keyframes(self, duration: int, scene_change_interval: int = 3) -> int:
         """키프레임 개수 계산"""

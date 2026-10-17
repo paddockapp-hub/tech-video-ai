@@ -1,242 +1,102 @@
-# Ollama 외부 서버 연결 가이드
+# Secure Ollama tunnel (Windows)
 
-## 🎯 외부 Ollama 서버 설정 방법
+The tunnel gateway keeps Ollama bound to `127.0.0.1:11434`; it does not expose
+Ollama's unauthenticated port directly. A Cloudflare Quick Tunnel forwards only
+the authenticated Ollama API routes through a local gateway.
 
-### 방법 1: NGROK 사용 (가장 쉬움)
+## One-command setup
 
-#### 1단계: NGROK 설치
-```bash
-# NGROK 다운로드
-https://ngrok.com/download
+From the repository root, run this in a new PowerShell window:
 
-# 또는 Chocolatey로 설치
-choco install ngrok
+```powershell
+.\scripts\start-preview-tunnel.ps1
 ```
 
-#### 2단계: NGROK 인증
-```bash
-ngrok authtoken YOUR_NGROK_AUTH_TOKEN
+The command verifies the local Ollama model, then prompts for a newly rotated
+ElevenLabs API key using hidden input and a voice ID. It saves them only to the
+ignored local `.env`, generates a strong tunnel token, and starts the
+authenticated Cloudflare Quick Tunnel. It does not print the API key or token.
+Once the tunnel URL is ready, it copies the complete Preview environment block
+to the clipboard automatically. Paste that block into Vercel → Project →
+Settings → Environment Variables, selecting Preview for each variable.
+
+Keep the PowerShell window open. After adding the variables, redeploy the
+Preview deployment from Vercel. When deployment completes, run this in another
+PowerShell window to verify both services without printing credentials:
+
+```powershell
+python -m scripts.verify_remote_services
 ```
 
-#### 3단계: Ollama 서버 실행
-```bash
-ollama serve
+The check returns success only when Ollama `/api/tags` is HTTP 200 JSON and
+contains the configured model, and ElevenLabs `/v1/voices` is HTTP 200 JSON
+containing the configured voice. If the Quick Tunnel restarts, the URL changes:
+copy the new Preview block from the setup command again and redeploy Preview.
+
+Use a newly rotated ElevenLabs key here. A key previously pasted into a chat
+should be revoked; this setup never reads it from the conversation.
+
+## Manual setup (optional)
+
+1. Install Cloudflare Tunnel (`cloudflared`) on the Ollama host:
+
+   ```powershell
+   winget install --id Cloudflare.cloudflared --exact
+   ```
+
+   Close and reopen PowerShell after installation.
+
+2. In the repository's ignored local `.env`, configure the same strong
+   `AUTH_TOKEN` that is available to the deployed application, plus the local
+   model:
+
+   ```env
+   AUTH_TOKEN=<same random secret in the application runtime; at least 32 characters>
+   OLLAMA_MODEL=llama3.2:latest
+   ```
+
+   The tunnel refuses to start if the token is missing or shorter than 32
+   characters. Do not commit `.env` or put the token in a URL.
+
+## Start the tunnel manually
+
+From the repository root, run:
+
+```powershell
+.\scripts\start-ollama-tunnel.ps1
 ```
 
-#### 4단계: NGROK 터널링
-```bash
-ngrok http 11434
-```
+The command first checks the actual local Ollama version and installed model.
+When Cloudflare publishes the Quick Tunnel, the script prints only its public
+URL. Keep the terminal open while using Ollama; Ctrl+C closes the tunnel and
+gateway.
 
-#### 5단계: 외부 HTTPS 주소 획득
-NGROK가 다음과 같은 주소를 제공:
-```
-https://abc123.ngrok-free.app
-```
+## Connect the deployed runtime
 
-#### 6단계: OLLAMA_BASE_URL 설정
+In the Preview environment, set the highest-priority Ollama pair to the
+printed URL and the locally verified model:
+
 ```env
-OLLAMA_BASE_URL=https://abc123.ngrok-free.app
-OLLAMA_MODEL=llama3.2
+OLLAMA_BASE_URL_14=https://<assigned-host>.trycloudflare.com
+OLLAMA_MODEL_13=llama3.2:latest
+AUTH_TOKEN=<same secret configured on the Ollama host>
 ```
 
-### 방법 2: 로컬 네트워크 공유 (단순)
+Redeploy/restart Preview after changing its environment. The Ollama client
+adds the bearer credential only for HTTPS `trycloudflare.com` endpoints; it
+does not send `AUTH_TOKEN` to arbitrary configured Ollama hosts. The gateway
+requires the credential and allows only `/api/version`, `/api/tags`,
+and `/api/generate` for the verified local model with streaming disabled.
 
-#### 1단계: 로컬 IP 확인
-```bash
-ipconfig
-# IPv4 주소 확인: 192.168.1.XXX
-```
+Cloudflare Quick Tunnel URLs change when the tunnel restarts. Update
+`OLLAMA_BASE_URL_14` in Preview each time the URL changes. For a stable
+production hostname, use a named Cloudflare Tunnel and configure its DNS and
+Cloudflare Access policy; do not point a public tunnel directly at port 11434.
 
-#### 2단계: Ollama 서버 실행
-```bash
-# 모든 네트워크 인터페이스에서 접근 허용
-OLLAMA_HOST=0.0.0.0 ollama serve
-```
+## How to verify
 
-#### 3단계: 방화벽 설정
-- 포트 11434 허용
-- 로컬 IP 공유
-
-#### 4단계: OLLAMA_BASE_URL 설정
-```env
-OLLAMA_BASE_URL=http://192.168.1.XXX:11434
-OLLAMA_MODEL=llama3.2
-```
-
-### 방법 3: 클라우드 서버 배포 (전문)
-
-#### 1단계: 클라우드 서버 선택
-- AWS EC2
-- Google Cloud Platform
-- Azure Virtual Machine
-- DigitalOcean
-
-#### 2단계: 서버 설정
-```bash
-# Ubuntu/Debian 서버에서
-curl -fsSL https://ollama.com/install.sh | sh
-
-# 또는 수동 설치
-curl https://ollama.com/ollama-linux-amd64 -o ollama
-chmod +x ollama
-sudo mv ollama /usr/local/bin/
-```
-
-#### 3단계: Ollama 서버 실행
-```bash
-ollama serve
-```
-
-#### 4단계: SSL 인증서 설정
-```bash
-# Let's Encrypt 사용
-sudo apt install certbot
-sudo certbot certonly --standalone -d your-domain.com
-```
-
-#### 5단계: 방화벽 설정
-```bash
-sudo ufw allow 11434/tcp
-```
-
-#### 6단계: OLLAMA_BASE_URL 설정
-```env
-OLLAMA_BASE_URL=https://your-domain.com:11434
-OLLAMA_MODEL=llama3.2
-```
-
-### 🔐 인증 방식
-
-#### 방법 1: API Key 인증
-```python
-# 웹 서버에 API Key 추가
-import requests
-
-headers = {
-    'Authorization': 'Bearer YOUR_API_KEY'
-}
-
-response = requests.post(
-    f"{OLLAMA_BASE_URL}/api/generate",
-    headers=headers,
-    json={
-        'model': 'llama3.2',
-        'prompt': prompt
-    }
-)
-```
-
-#### 방법 2: IP 허용 (단순)
-```python
-# 웹 서버에서 IP 허용 설정
-ALLOWED_IPS = ['your-ip-address', 'another-ip']
-
-def is_ip_allowed(client_ip):
-    return client_ip in ALLOWED_IPS
-```
-
-#### 방법 3: Nginx 프록시 (전문)
-```nginx
-location /api/ {
-    proxy_pass http://localhost:11434;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    
-    # 인증
-    auth_basic "Restricted";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-}
-```
-
-## 🚀 추천 방법: NGROK
-
-### 빠른 설정
-```bash
-# 1. NGROK 설치
-choco install ngrok
-
-# 2. Ollama 서버 실행
-ollama serve
-
-# 3. NGROK 터널링 (새 터미널)
-ngrok http 11434
-
-# 4. 제공된 HTTPS 주소 복사
-# 예: https://abc123.ngrok-free.app
-
-# 5. 환경 변수 설정
-OLLAMA_BASE_URL=https://abc123.ngrok-free.app
-```
-
-## 📋 현재 설정
-
-### 추천 OLLAMA_BASE_URL 값
-```env
-# NGROK 사용 (추천)
-OLLAMA_BASE_URL=https://your-ngrok-url.ngrok-free.app
-
-# 또는 로컬 IP (단순)
-OLLAMA_BASE_URL=http://192.168.1.XXX:11434
-
-# 또는 클라우드 서버 (전문)
-OLLAMA_BASE_URL=https://your-domain.com:11434
-```
-
-## ⚠️ 보안 주의사항
-
-1. **NGROK 무료 플랜**: 
-   - 임시 URL (재시작 시 변경)
-   - 트래픽 제한
-   - 테스트용으로 적합
-
-2. **프로덕션용**:
-   - 전용 도메인 사용
-   - SSL 인증서 설치
-   - API Key 인증 필수
-   - 속도 제한 설정
-
-3. **방화벽**:
-   - 최소한의 포트만 개방
-   - IP 필터링 적용
-   - 속도 제한 설정
-
-## 🎯 v0.dev에 적용
-
-### API 호출 수정
-```javascript
-// OLLAMA_BASE_URL 사용
-const OLLAMA_BASE_URL = 'https://your-ngrok-url.ngrok-free.app';
-
-fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    model: 'llama3.2',
-    prompt: prompt
-  })
-})
-```
-
-### 환경 변수 설정
-```env
-# v0.dev 프로젝트 설정
-OLLAMA_BASE_URL=https://your-ngrok-url.ngrok-free.app
-OLLAMA_MODEL=llama3.2
-```
-
-## 📊 요약
-
-**가장 쉬운 방법**: NGROK
-- 설치: `choco install ngrok`
-- 실행: `ngrok http 11434`
-- 주소: `https://abc123.ngrok-free.app`
-- OLLAMA_BASE_URL: `https://abc123.ngrok-free.app`
-
-**전문 방법**: 클라우드 서버
-- 서버: AWS/GCP/Azure
-- SSL: Let's Encrypt
-- 인증: API Key 또는 IP 필터링
-- OLLAMA_BASE_URL: `https://your-domain.com:11434`
+The application's Ollama status endpoint probes `/api/version` and
+`/api/tags`, requires the configured model to be installed, and reports a
+specific failure state rather than marking an unavailable model as connected.
+Use that status before starting video generation. The fallback response remains
+marked as fallback and is never represented as real Ollama output.

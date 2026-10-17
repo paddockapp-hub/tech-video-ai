@@ -9,6 +9,7 @@ import argparse
 import json
 from typing import Dict
 from dotenv import load_dotenv
+from env_utils import get_env_value, resolve_config_values
 
 # 모듈 임포트
 import sys
@@ -59,7 +60,7 @@ class EngineeringShortsGenerator:
             try:
                 self.gpt_service = OllamaService(
                     host=self.config.get('ollama_host', 'http://localhost:11434'),
-                    model=self.config.get('ollama_model', 'llama3.2')
+                    model=self.config.get('ollama_model', 'llama3.2:latest')
                 )
                 print("Ollama 서비스 초기화 완료")
             except Exception as e:
@@ -83,7 +84,12 @@ class EngineeringShortsGenerator:
             self.google_flow_service = GoogleFlowService(self.config)
         
         self.keyframe_manager = KeyframeManager(self.config)
-        self.image_workflow = ImageWorkflow(self.config)
+        self.image_workflow = ImageWorkflow(
+            self.config,
+            gpt_service=self.gpt_service,
+            google_flow_service=self.google_flow_service,
+            keyframe_manager=self.keyframe_manager
+        )
         self.video_editor = VideoEditor(self.config)
         self.tts_service = TTSService(self.config)
         
@@ -93,22 +99,26 @@ class EngineeringShortsGenerator:
         """설정 파일 로드"""
         
         default_config = {
-            'openai_api_key': os.getenv('OPENAI_API_KEY'),
-            'openai_model': os.getenv('OPENAI_MODEL', 'gpt-4'),
-            'google_api_key': os.getenv('GOOGLE_API_KEY'),
-            'google_model': os.getenv('GOOGLE_MODEL', 'gemini-pro'),
-            'google_tts_enabled': os.getenv('GOOGLE_TTS_ENABLED', 'false').lower() == 'true',
-            'video_duration': int(os.getenv('VIDEO_DURATION', 30)),
-            'fps': int(os.getenv('FPS', 30)),
-            'image_width': int(os.getenv('IMAGE_WIDTH', 1080)),
-            'image_height': int(os.getenv('IMAGE_HEIGHT', 1920)),
-            'output_dir': os.getenv('OUTPUT_DIR', 'output'),
-            'temp_dir': os.getenv('TEMP_DIR', 'temp'),
+            'openai_api_key': get_env_value('OPENAI_API_KEY'),
+            'openai_model': get_env_value('OPENAI_MODEL', 'gpt-4'),
+            'google_api_key': get_env_value('GOOGLE_API_KEY'),
+            'google_model': get_env_value('GOOGLE_MODEL', 'gemini-pro'),
+            'google_tts_enabled': (get_env_value('GOOGLE_TTS_ENABLED', 'false') or 'false').lower() == 'true',
+            'video_duration': int(get_env_value('VIDEO_DURATION', '30') or '30'),
+            'fps': int(get_env_value('FPS', '30') or '30'),
+            'image_width': int(get_env_value('IMAGE_WIDTH', '1080') or '1080'),
+            'image_height': int(get_env_value('IMAGE_HEIGHT', '1920') or '1920'),
+            'output_dir': get_env_value('OUTPUT_DIR', 'output'),
+            'temp_dir': get_env_value('TEMP_DIR', 'temp'),
             # 로컬 AI 설정
-            'use_local_ai': os.getenv('USE_LOCAL_AI', 'false').lower() == 'true',
-            'ollama_host': os.getenv('OLLAMA_HOST', 'http://localhost:11434'),
-            'ollama_model': os.getenv('OLLAMA_MODEL', 'llama3.2'),
-            'sd_host': os.getenv('SD_HOST', 'http://127.0.0.1:7860')
+            'use_local_ai': (get_env_value('USE_LOCAL_AI', 'false') or 'false').lower() == 'true',
+            'ollama_host': get_env_value('OLLAMA_HOST', 'http://localhost:11434'),
+            'ollama_model': get_env_value('OLLAMA_MODEL', 'llama3.2:latest'),
+            'tts_api_key': get_env_value('TTS_API_KEY') or get_env_value('apiKey'),
+            'tts_provider': get_env_value('TTS_PROVIDER'),
+            'tts_language': get_env_value('TTS_LANGUAGE'),
+            'tts_voice': get_env_value('TTS_VOICE'),
+            'sd_host': get_env_value('SD_HOST', 'http://127.0.0.1:7860')
         }
         
         if config_path and os.path.exists(config_path):
@@ -119,7 +129,7 @@ class EngineeringShortsGenerator:
             except Exception as e:
                 print(f"설정 파일 로드 중 오류: {e}")
         
-        return default_config
+        return resolve_config_values(default_config)
     
     def generate_complete_video(self, script_file_path: str, options: Dict = None) -> Dict:
         """완전한 비디오 생성 워크플로우 실행"""
@@ -154,10 +164,15 @@ class EngineeringShortsGenerator:
             # 2단계: 이미지 생성 (기본 + 인포그래픽)
             print("\n[2/6] 이미지 생성 워크플로우 실행...")
             image_result = self.image_workflow.execute_full_workflow(script_file_path)
+            if image_result.get('success') is not True:
+                raise RuntimeError("이미지 생성 단계가 완료되지 않았습니다.")
             
             results['steps']['image_generation'] = {
                 'total_images': len(image_result['generated_images']),
-                'output_directory': image_result['output_directory']
+                'output_directory': image_result['output_directory'],
+                'status': image_result.get('status'),
+                'source': image_result.get('image_source'),
+                'ai_source': image_result.get('ai_source'),
             }
             
             print(f"   생성된 이미지 쌍: {len(image_result['generated_images'])}")
@@ -173,8 +188,15 @@ class EngineeringShortsGenerator:
                     method=options.get('tts_method', 'auto')
                 )
                 results['steps']['audio_generation'] = {
-                    'audio_path': audio_path
+                    'audio_path': audio_path,
+                    'status': 'completed' if os.path.isfile(audio_path) and os.path.getsize(audio_path) > 0 else 'failed',
+                    'provider': self.tts_service.last_provider,
+                    'providers': self.tts_service.providers_used,
+                    'used_fallback': self.tts_service.used_fallback,
+                    'provider_error': self.tts_service.last_error,
                 }
+                if results['steps']['audio_generation']['status'] != 'completed':
+                    raise RuntimeError("TTS 서비스가 유효한 음성 파일을 만들지 않았습니다.")
                 print(f"   음성 파일: {audio_path}")
             
             # 4단계: 클립 순서 정리 (GPT 활용)
@@ -185,7 +207,8 @@ class EngineeringShortsGenerator:
             )
             
             results['steps']['clip_organization'] = {
-                'organized': True
+                'organized': True,
+                'source': getattr(self.gpt_service, 'last_generation_source', 'fallback')
             }
             
             print("   클립 순서 정리 완료")
@@ -198,7 +221,13 @@ class EngineeringShortsGenerator:
             )
             
             results['steps']['video_creation'] = {
-                'video_path': video_path
+                'video_path': video_path,
+                'status': 'completed',
+                'source': 'ffmpeg' if self.video_editor._find_ffmpeg() else 'moviepy',
+                'inputs': {
+                    'images': image_result.get('image_source'),
+                    'audio_provider': self.tts_service.last_provider if audio_path else None,
+                },
             }
             
             print(f"   비디오 파일: {video_path}")
@@ -212,8 +241,11 @@ class EngineeringShortsGenerator:
             
             results['steps']['platform_optimization'] = {
                 'platform': platform,
-                'optimized_path': optimized_video
+                'optimized_path': optimized_video,
+                'status': 'completed' if os.path.isfile(optimized_video) and os.path.getsize(optimized_video) > 0 else 'failed',
             }
+            if results['steps']['platform_optimization']['status'] != 'completed':
+                raise RuntimeError("플랫폼 최적화 결과 파일이 유효하지 않습니다.")
             
             print(f"   최적화된 비디오: {optimized_video}")
             
@@ -225,12 +257,20 @@ class EngineeringShortsGenerator:
                     options['watermark']
                 )
                 results['steps']['watermark'] = {
-                    'watermarked_path': watermarked_video
+                    'watermarked_path': watermarked_video,
+                    'status': 'completed',
+                    'source': 'moviepy',
                 }
                 optimized_video = watermarked_video
             
             # 최종 결과
             results['success'] = True
+            has_fallback = (
+                image_result.get('status') == 'completed_with_fallback'
+                or (audio_path is not None and self.tts_service.used_fallback)
+                or getattr(self.gpt_service, 'last_generation_source', 'unknown') == 'fallback'
+            )
+            results['status'] = 'completed_with_fallback' if has_fallback else 'completed'
             results['final_video_path'] = optimized_video
             
             print("\n=== 워크플로우 완료 ===")
@@ -238,8 +278,11 @@ class EngineeringShortsGenerator:
             
         except Exception as e:
             print(f"\n=== 워크플로우 실패 ===")
-            print(f"오류: {e}")
-            results['error'] = str(e)
+            print(f"오류 유형: {type(e).__name__}")
+            results['error'] = '비디오 생성 워크플로우가 완료되지 않았습니다.'
+            results['error_type'] = type(e).__name__
+            if self.tts_service.last_error:
+                results['tts_error'] = self.tts_service.last_error
         
         return results
     
@@ -263,7 +306,8 @@ class EngineeringShortsGenerator:
         except Exception as e:
             return {
                 'success': False,
-                'error': str(e)
+                'error': '이미지 생성이 완료되지 않았습니다.',
+                'error_type': type(e).__name__,
             }
     
     def generate_audio_only(self, script_file_path: str, method: str = 'auto') -> Dict:
@@ -281,13 +325,19 @@ class EngineeringShortsGenerator:
             return {
                 'success': True,
                 'audio_path': audio_path,
-                'script_text': script_analysis['script_text']
+                'script_text': script_analysis['script_text'],
+                'provider': self.tts_service.last_provider,
+                'providers': self.tts_service.providers_used,
+                'used_fallback': self.tts_service.used_fallback,
+                'provider_error': self.tts_service.last_error,
             }
             
         except Exception as e:
             return {
                 'success': False,
-                'error': str(e)
+                'error': '음성 생성이 완료되지 않았습니다.',
+                'error_type': type(e).__name__,
+                'provider_error': self.tts_service.last_error,
             }
     
     def create_preview(self, script_file_path: str) -> Dict:
@@ -313,7 +363,8 @@ class EngineeringShortsGenerator:
         except Exception as e:
             return {
                 'success': False,
-                'error': str(e)
+                'error': '프리뷰 생성이 완료되지 않았습니다.',
+                'error_type': type(e).__name__,
             }
     
     def batch_process(self, script_directory: str, options: Dict = None) -> Dict:
@@ -357,11 +408,12 @@ class EngineeringShortsGenerator:
                 })
                 
             except Exception as e:
-                print(f"파일 처리 실패: {script_file}, 오류: {e}")
+                print(f"파일 처리 실패: {os.path.basename(script_file)} ({type(e).__name__})")
                 results.append({
                     'script_file': script_file,
                     'success': False,
-                    'error': str(e)
+                    'error': '파일 처리가 완료되지 않았습니다.',
+                    'error_type': type(e).__name__,
                 })
         
         # 결과 요약

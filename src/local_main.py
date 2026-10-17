@@ -9,6 +9,7 @@ import argparse
 import json
 from typing import Dict
 from dotenv import load_dotenv
+from env_utils import get_env_value, resolve_config_values
 
 # 현재 디렉토리를 경로에 추가
 sys.path.insert(0, os.path.dirname(__file__))
@@ -58,7 +59,7 @@ class EngineeringShortsGenerator:
             try:
                 self.gpt_service = OllamaService(
                     host=self.config.get('ollama_host', 'http://localhost:11434'),
-                    model=self.config.get('ollama_model', 'llama3.2')
+                    model=self.config.get('ollama_model', 'llama3.2:latest')
                 )
                 print("Ollama 서비스 초기화 완료")
             except Exception as e:
@@ -93,22 +94,26 @@ class EngineeringShortsGenerator:
         """설정 파일 로드"""
         
         default_config = {
-            'openai_api_key': os.getenv('OPENAI_API_KEY'),
-            'openai_model': os.getenv('OPENAI_MODEL', 'gpt-4'),
-            'google_api_key': os.getenv('GOOGLE_API_KEY'),
-            'google_model': os.getenv('GOOGLE_MODEL', 'gemini-pro'),
-            'google_tts_enabled': os.getenv('GOOGLE_TTS_ENABLED', 'false').lower() == 'true',
-            'video_duration': int(os.getenv('VIDEO_DURATION', 30)),
-            'fps': int(os.getenv('FPS', 30)),
-            'image_width': int(os.getenv('IMAGE_WIDTH', 1080)),
-            'image_height': int(os.getenv('IMAGE_HEIGHT', 1920)),
-            'output_dir': os.getenv('OUTPUT_DIR', 'output'),
-            'temp_dir': os.getenv('TEMP_DIR', 'temp'),
+            'openai_api_key': get_env_value('OPENAI_API_KEY'),
+            'openai_model': get_env_value('OPENAI_MODEL', 'gpt-4'),
+            'google_api_key': get_env_value('GOOGLE_API_KEY'),
+            'google_model': get_env_value('GOOGLE_MODEL', 'gemini-pro'),
+            'google_tts_enabled': (get_env_value('GOOGLE_TTS_ENABLED', 'false') or 'false').lower() == 'true',
+            'video_duration': int(get_env_value('VIDEO_DURATION', '30') or '30'),
+            'fps': int(get_env_value('FPS', '30') or '30'),
+            'image_width': int(get_env_value('IMAGE_WIDTH', '1080') or '1080'),
+            'image_height': int(get_env_value('IMAGE_HEIGHT', '1920') or '1920'),
+            'output_dir': get_env_value('OUTPUT_DIR', 'output'),
+            'temp_dir': get_env_value('TEMP_DIR', 'temp'),
             # 로컬 AI 설정
-            'use_local_ai': os.getenv('USE_LOCAL_AI', 'false').lower() == 'true',
-            'ollama_host': os.getenv('OLLAMA_HOST', 'http://localhost:11434'),
-            'ollama_model': os.getenv('OLLAMA_MODEL', 'llama3.2'),
-            'sd_host': os.getenv('SD_HOST', 'http://127.0.0.1:7860')
+            'use_local_ai': (get_env_value('USE_LOCAL_AI', 'false') or 'false').lower() == 'true',
+            'ollama_host': get_env_value('OLLAMA_HOST', 'http://localhost:11434'),
+            'ollama_model': get_env_value('OLLAMA_MODEL', 'llama3.2:latest'),
+            'tts_api_key': get_env_value('TTS_API_KEY') or get_env_value('apiKey'),
+            'tts_provider': get_env_value('TTS_PROVIDER'),
+            'tts_language': get_env_value('TTS_LANGUAGE'),
+            'tts_voice': get_env_value('TTS_VOICE'),
+            'sd_host': get_env_value('SD_HOST', 'http://127.0.0.1:7860')
         }
         
         if config_path and os.path.exists(config_path):
@@ -119,7 +124,7 @@ class EngineeringShortsGenerator:
             except Exception as e:
                 print(f"설정 파일 로드 중 오류: {e}")
         
-        return default_config
+        return resolve_config_values(default_config)
     
     def generate_images_only(self, script_file_path: str) -> Dict:
         """이미지 생성만 수행"""
@@ -146,7 +151,8 @@ class EngineeringShortsGenerator:
         except Exception as e:
             return {
                 'success': False,
-                'error': f'이미지 생성 중 오류 발생: {str(e)}'
+                'error': '이미지 생성이 완료되지 않았습니다.',
+                'error_type': type(e).__name__,
             }
     
     def generate_full_video(self, script_file_path: str) -> Dict:
@@ -174,7 +180,9 @@ class EngineeringShortsGenerator:
             except Exception as e:
                 return {
                     'success': False,
-                    'error': f'TTS 생성 실패: {str(e)}'
+                    'error': 'TTS 생성이 완료되지 않았습니다.',
+                    'error_type': type(e).__name__,
+                    'tts_error': self.tts_service.last_error,
                 }
             
             # 3단계: 비디오 편집
@@ -188,7 +196,8 @@ class EngineeringShortsGenerator:
             except Exception as e:
                 return {
                     'success': False,
-                    'error': f'비디오 편집 실패: {str(e)}',
+                    'error': '비디오 인코딩이 완료되지 않았습니다.',
+                    'error_type': type(e).__name__,
                     'audio_file': audio_file,
                     'image_result': image_result
                 }
@@ -197,6 +206,15 @@ class EngineeringShortsGenerator:
                 'success': True,
                 'video_file': video_file,
                 'audio_file': audio_file,
+                'video_source': 'ffmpeg' if self.video_editor._find_ffmpeg() else 'moviepy',
+                'status': 'completed_with_fallback' if (
+                    image_result.get('status') == 'completed_with_fallback'
+                    or self.tts_service.used_fallback
+                    or getattr(self.gpt_service, 'last_generation_source', 'unknown') == 'fallback'
+                ) else 'completed',
+                'audio_provider': self.tts_service.last_provider,
+                'audio_providers': self.tts_service.providers_used,
+                'audio_error': self.tts_service.last_error,
                 'image_result': image_result
             }
             
@@ -208,7 +226,8 @@ class EngineeringShortsGenerator:
         except Exception as e:
             return {
                 'success': False,
-                'error': f'비디오 생성 중 오류 발생: {str(e)}'
+                'error': '비디오 생성이 완료되지 않았습니다.',
+                'error_type': type(e).__name__,
             }
 
 

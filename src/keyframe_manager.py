@@ -37,13 +37,15 @@ class KeyframeManager:
         # 각 키프레임 정보 생성
         keyframes = []
         for i, segment in enumerate(scene_segments):
+            start_time = duration * i / num_keyframes
+            end_time = duration * (i + 1) / num_keyframes
             keyframe = {
                 'id': i + 1,
                 'scene_number': i + 1,
                 'segment_text': segment,
-                'duration': duration // num_keyframes,
-                'start_time': i * (duration // num_keyframes),
-                'end_time': (i + 1) * (duration // num_keyframes) if i < num_keyframes - 1 else duration,
+                'duration': end_time - start_time,
+                'start_time': start_time,
+                'end_time': end_time,
                 'base_image_path': None,
                 'infographic_image_path': None,
                 'status': 'pending',
@@ -131,13 +133,15 @@ class KeyframeManager:
         total = len(self.keyframes)
         completed = len(self.get_completed_keyframes())
         pending = len(self.get_pending_keyframes())
-        in_progress = total - completed - pending
+        fallback = sum(1 for kf in self.keyframes if kf['status'] == 'fallback')
+        in_progress = total - completed - pending - fallback
         
         return {
             'total': total,
             'completed': completed,
             'pending': pending,
             'in_progress': in_progress,
+            'fallback': fallback,
             'progress_percentage': (completed / total * 100) if total > 0 else 0
         }
     
@@ -154,7 +158,11 @@ class KeyframeManager:
             'metadata': {
                 'total_keyframes': len(self.keyframes),
                 'created_at': datetime.now().isoformat(),
-                'config': self.config
+                'config': {
+                    key: value
+                    for key, value in self.config.items()
+                    if not any(marker in key.lower() for marker in ('key', 'token', 'secret', 'password'))
+                }
             }
         }
         

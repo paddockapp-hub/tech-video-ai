@@ -50,6 +50,8 @@ test_uploads/
 *.jpeg
 test_*.txt
 test_*.py
+!tests/
+!tests/test_*.py
 
 # 로그
 *.log

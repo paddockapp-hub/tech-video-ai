@@ -4,9 +4,9 @@ TTS Service Module
 """
 
 import os
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import requests
-import tempfile
+import re
 
 # 의존성 import
 try:
@@ -21,12 +21,21 @@ try:
 except ImportError:
     GOOGLE_TTS_AVAILABLE = False
 
+try:
+    from .env_utils import get_env_value, resolve_env_value
+except ImportError:
+    from env_utils import get_env_value, resolve_env_value
+
 
 class TTSService:
     def __init__(self, config: Dict):
         self.config = config
         self.output_dir = config.get('output_dir', 'output')
         self.temp_dir = config.get('temp_dir', 'temp')
+        self.last_provider = None
+        self.last_error = None
+        self.providers_used = []
+        self.used_fallback = False
         
         # 디렉토리 생성
         os.makedirs(self.output_dir, exist_ok=True)
@@ -37,14 +46,40 @@ class TTSService:
         if config.get('google_tts_enabled', False) and GOOGLE_TTS_AVAILABLE:
             try:
                 self.google_tts_client = texttospeech.TextToSpeechClient()
-            except Exception as e:
-                print(f"Google Cloud TTS 초기화 실패: {e}")
+            except Exception:
+                print("Google Cloud TTS 초기화에 실패했습니다.")
                 print("gTTS를 사용하여 대체합니다.")
         
         # gTTS 가용성 확인
         self.gtts_available = GTTS_AVAILABLE
         if not self.gtts_available:
             print("gTTS를 사용할 수 없습니다. 음성 생성 기능이 제한됩니다.")
+
+    def _language_code(self) -> str:
+        return (
+            resolve_env_value(self.config.get('tts_language'))
+            or get_env_value('TTS_LANGUAGE')
+            or 'ko-KR'
+        )
+
+    def _voice_id(self) -> Optional[str]:
+        return (
+            resolve_env_value(self.config.get('tts_voice'))
+            or get_env_value('TTS_VOICE')
+        )
+
+    def _record_provider(self, provider: str) -> None:
+        self.last_provider = provider
+        if provider not in self.providers_used:
+            self.providers_used.append(provider)
+
+    @staticmethod
+    def _validate_audio_file(audio_path: str) -> str:
+        if not isinstance(audio_path, str) or not os.path.isfile(audio_path):
+            raise RuntimeError("Speech provider did not create an audio file.")
+        if os.path.getsize(audio_path) == 0:
+            raise RuntimeError("Speech provider created an empty audio file.")
+        return audio_path
     
     def generate_speech_with_gtts(self, text: str, output_path: str = None, 
                                 language: str = 'ko', slow: bool = False) -> str:
@@ -61,6 +96,7 @@ class TTSService:
             # gTTS로 음성 생성
             tts = gTTS(text=text, lang=language, slow=slow)
             tts.save(output_path)
+            self._record_provider('gtts')
             
             print(f"gTTS 음성 생성 완료: {output_path}")
             return output_path
@@ -78,7 +114,12 @@ class TTSService:
         
         if not self.google_tts_client:
             print("Google Cloud TTS 클라이언트가 초기화되지 않았습니다. gTTS를 사용합니다.")
-            return self.generate_speech_with_gtts(text, output_path)
+            self.used_fallback = True
+            return self.generate_speech_with_gtts(
+                text,
+                output_path,
+                language=self._language_code().split('-')[0],
+            )
         
         try:
             # TTS 요청 설정
@@ -86,7 +127,7 @@ class TTSService:
             
             # 음성 설정
             voice = texttospeech.VoiceSelectionParams(
-                language_code='ko-KR',
+                language_code=self._language_code(),
                 name=voice_name
             )
             
@@ -101,18 +142,122 @@ class TTSService:
                 voice=voice,
                 audio_config=audio_config
             )
+            if not response.audio_content:
+                raise RuntimeError("Google TTS returned empty audio.")
             
             # 오디오 파일 저장
             with open(output_path, 'wb') as out:
                 out.write(response.audio_content)
             
+            self._record_provider('google')
             print(f"Google TTS 음성 생성 완료: {output_path}")
             return output_path
             
-        except Exception as e:
-            print(f"Google TTS 음성 생성 중 오류 발생: {e}")
+        except Exception:
+            print("Google TTS 음성 생성에 실패했습니다.")
             print("gTTS를 사용하여 대체 생성합니다.")
-            return self.generate_speech_with_gtts(text, output_path)
+            self.used_fallback = True
+            return self.generate_speech_with_gtts(
+                text,
+                output_path,
+                language=self._language_code().split('-')[0],
+            )
+
+    def generate_speech_with_elevenlabs(self, text: str, output_path: str = None) -> str:
+        """Generate speech with the configured ElevenLabs voice."""
+        api_key = (
+            resolve_env_value(self.config.get('tts_api_key'))
+            or get_env_value('TTS_API_KEY')
+            or get_env_value('apiKey')
+        )
+        voice_id = self._voice_id()
+        if not api_key:
+            self.last_error = "tts-not-configured"
+            raise RuntimeError("ElevenLabs API key is not configured.")
+        if not voice_id:
+            self.last_error = "tts-voice-not-configured"
+            raise RuntimeError("ElevenLabs voice is not configured.")
+        if output_path is None:
+            output_path = os.path.join(self.output_dir, 'speech_elevenlabs.mp3')
+
+        language = self._language_code()
+        language_code = re.sub(r'[^A-Za-z-]', '', language.split('-')[0])
+        try:
+            response = requests.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                headers={
+                    "xi-api-key": api_key,
+                    "Accept": "audio/mpeg",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "text": text,
+                    "model_id": "eleven_multilingual_v2",
+                    "language_code": language_code,
+                },
+                params={"output_format": "mp3_44100_128"},
+                timeout=120,
+            )
+            content_type = response.headers.get('Content-Type', '').lower()
+            if response.status_code != 200:
+                if response.status_code in (401, 403):
+                    self.last_error = "tts-unauthorized"
+                elif response.status_code == 429:
+                    self.last_error = "tts-rate-limited"
+                elif response.status_code >= 500:
+                    self.last_error = "tts-provider-unavailable"
+                else:
+                    self.last_error = "tts-request-rejected"
+                raise RuntimeError("ElevenLabs rejected the speech request.")
+            if not response.content or 'audio' not in content_type:
+                self.last_error = "tts-invalid-response"
+                raise RuntimeError("ElevenLabs returned an invalid audio response.")
+            with open(output_path, 'wb') as output_file:
+                output_file.write(response.content)
+            self._record_provider('elevenlabs')
+            self.last_error = None
+            return output_path
+        except requests.RequestException as exc:
+            self.last_error = "tts-unreachable"
+            raise RuntimeError("ElevenLabs speech generation failed.") from exc
+
+    def _configured_method(self, method: str) -> str:
+        if method != 'auto':
+            return method
+        provider = resolve_env_value(self.config.get('tts_provider')) or get_env_value('TTS_PROVIDER')
+        if provider:
+            return provider.strip().lower()
+        if self.config.get('tts_api_key') or get_env_value('TTS_API_KEY') or get_env_value('apiKey'):
+            return 'elevenlabs'
+        return 'gtts'
+
+    def _generate_with_method(self, text: str, output_path: str, method: str) -> str:
+        method = self._configured_method(method)
+        if method in ('elevenlabs', 'eleven-labs'):
+            try:
+                return self.generate_speech_with_elevenlabs(text, output_path)
+            except RuntimeError:
+                if not self.gtts_available:
+                    raise
+                self.used_fallback = True
+                return self.generate_speech_with_gtts(
+                    text,
+                    output_path,
+                    language=self._language_code().split('-')[0],
+                )
+        if method == 'google':
+            return self.generate_speech_with_google_tts(
+                text,
+                output_path,
+                voice_name=self._voice_id() or 'ko-KR-Wavenet-A',
+            )
+        if method in ('gtts', 'auto'):
+            return self.generate_speech_with_gtts(
+                text,
+                output_path,
+                language=self._language_code().split('-')[0],
+            )
+        raise ValueError(f"Unsupported TTS provider: {method}")
     
     def generate_segmented_speech(self, segments: List[str], output_dir: str = None) -> List[str]:
         """세그먼트별 음성 생성"""
@@ -150,11 +295,12 @@ class TTSService:
         try:
             from pydub import AudioSegment
             audio = AudioSegment.from_mp3(audio_path)
-            return len(audio) / 1000.0  # 밀리초를 초로 변환
-        except Exception as e:
-            print(f"오디오 길이 측정 중 오류: {e}")
-            # 텍스트 길이로 추정 (한국어 기준)
-            return len(audio_path) / 5.0  # 대략적인 추정
+            duration = len(audio) / 1000.0
+            if duration <= 0:
+                raise RuntimeError("Audio file has no playable duration.")
+            return duration
+        except Exception as exc:
+            raise RuntimeError("Audio duration could not be measured.") from exc
     
     def concatenate_audio_files(self, audio_files: List[str], output_path: str = None) -> str:
         """여러 오디오 파일 연결"""
@@ -164,13 +310,20 @@ class TTSService:
         
         try:
             from pydub import AudioSegment
-            
+            if not audio_files or any(
+                not os.path.isfile(path) or os.path.getsize(path) == 0
+                for path in audio_files
+            ):
+                raise RuntimeError("One or more speech segments are missing or empty.")
+
             combined = AudioSegment.empty()
             
             for audio_file in audio_files:
-                if os.path.exists(audio_file):
-                    audio = AudioSegment.from_mp3(audio_file)
-                    combined += audio
+                audio = AudioSegment.from_mp3(audio_file)
+                combined += audio
+
+            if len(combined) <= 0:
+                raise RuntimeError("Combined speech contains no audio.")
             
             combined.export(output_path, format='mp3')
             
@@ -184,8 +337,15 @@ class TTSService:
     def generate_speech_from_script(self, script_text: str, output_path: str = None,
                                    method: str = 'auto') -> str:
         """스크립트 전체 음성 생성"""
+        if not isinstance(script_text, str) or not script_text.strip():
+            raise ValueError("Speech script must not be empty.")
         
-        if not self.gtts_available:
+        method = self._configured_method(method)
+        self.providers_used = []
+        self.last_provider = None
+        self.last_error = None
+        self.used_fallback = False
+        if not self.gtts_available and method not in ('elevenlabs', 'eleven-labs', 'google'):
             raise RuntimeError("음성 생성 서비스를 사용할 수 없습니다.")
         
         if output_path is None:
@@ -196,17 +356,16 @@ class TTSService:
             segments = self._split_long_text(script_text, 500)
             audio_files = []
             
-            for segment in segments:
-                temp_path = os.path.join(self.temp_dir, 'temp_segment.mp3')
+            for index, segment in enumerate(segments):
+                temp_path = os.path.join(self.temp_dir, f'temp_segment_{index:04d}.mp3')
                 try:
-                    if method == 'google':
-                        audio_path = self.generate_speech_with_google_tts(segment, temp_path)
-                    else:
-                        audio_path = self.generate_speech_with_gtts(segment, temp_path)
+                    audio_path = self._validate_audio_file(
+                        self._generate_with_method(segment, temp_path, method)
+                    )
                     audio_files.append(audio_path)
                 except Exception as e:
                     print(f"세그먼트 음성 생성 실패: {e}")
-                    continue
+                    raise RuntimeError("음성 세그먼트 생성이 완료되지 않았습니다.") from e
             
             if not audio_files:
                 raise RuntimeError("모든 세그먼트 음성 생성 실패")
@@ -225,14 +384,13 @@ class TTSService:
                     except Exception as e:
                         print(f"임시 파일 삭제 실패: {e}")
             
-            return final_path
+            return self._validate_audio_file(final_path)
         else:
             # 짧은 텍스트는 바로 생성
             try:
-                if method == 'google':
-                    return self.generate_speech_with_google_tts(script_text, output_path)
-                else:
-                    return self.generate_speech_with_gtts(script_text, output_path)
+                return self._validate_audio_file(
+                    self._generate_with_method(script_text, output_path, method)
+                )
             except Exception as e:
                 raise RuntimeError(f"음성 생성 실패: {str(e)}")
     
