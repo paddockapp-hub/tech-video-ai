@@ -73,6 +73,41 @@ class OllamaServiceTests(unittest.TestCase):
         self.assertFalse(post[2]['json']['stream'])
         self.assertEqual([call[1].rsplit('/', 1)[-1] for call in session.calls[:2]], ['version', 'tags'])
 
+    def test_newest_tunnel_pair_has_priority_and_cleans_model_value(self):
+        environment = {
+            'OLLAMA_BASE_URL_14': 'https://latest.trycloudflare.com/',
+            'OLLAMA_MODEL_13': 'Please use llama3.2:latest for generation',
+            'OLLAMA_BASE_URL_10_3_2': 'https://older.trycloudflare.com',
+            'OLLAMA_MODEL_8_3_2': 'other-model',
+        }
+        session = FakeSession(get_responses=[
+            FakeResponse(payload={'version': '0.5.0'}),
+            self.tags_response(name='llama3.2:latest'),
+        ])
+        with patch.dict(os.environ, environment, clear=True):
+            service = OllamaService(host='', model='', session=session)
+
+        self.assertEqual(service._candidates[0]['url'], 'https://latest.trycloudflare.com')
+        self.assertEqual(service._candidates[0]['model'], 'llama3.2:latest')
+        selected = service.discover()
+        self.assertEqual(selected['source'], 'OLLAMA_BASE_URL_14+OLLAMA_MODEL_13')
+
+    def test_invalid_model_sentence_falls_back_to_default_model(self):
+        environment = {
+            'OLLAMA_BASE_URL_14': 'https://latest.trycloudflare.com',
+            'OLLAMA_MODEL_13': 'use default model for the project',
+            'OLLAMA_MODEL': 'also invalid config',
+        }
+        session = FakeSession(get_responses=[
+            FakeResponse(payload={'version': '0.5.0'}),
+            self.tags_response(name='llama3.2:latest'),
+        ])
+        with patch.dict(os.environ, environment, clear=True):
+            service = OllamaService(host='', model='', session=session)
+
+        self.assertEqual(service._candidates[0]['model'], 'llama3.2:latest')
+        self.assertEqual(service.discover()['model'], 'llama3.2:latest')
+
     def test_unqualified_model_alias_uses_installed_latest_tag_for_generation(self):
         environment = {
             'OLLAMA_BASE_URL_10_3_2': 'https://priority.ngrok-free.dev',

@@ -63,8 +63,8 @@ Vercel Dashboard → Settings → Environment Variables:
 ```env
 USE_LOCAL_AI=true
 OLLAMA_MODEL=llama3.2:latest
-OLLAMA_BASE_URL_10_3_2=https://<assigned-host>.trycloudflare.com
-OLLAMA_MODEL_8_3_2=llama3.2:latest
+OLLAMA_BASE_URL_14=https://<assigned-host>.trycloudflare.com
+OLLAMA_MODEL_13=llama3.2:latest
 AUTH_TOKEN=<same strong token used by the authenticated local tunnel gateway>
 TTS_PROVIDER=elevenlabs
 TTS_API_KEY=<ElevenLabs API key>
@@ -77,7 +77,7 @@ GITHUB_ENABLED=false
 `localhost` in a Vercel environment refers to the Vercel runtime itself, not
 the developer's computer. For remote Ollama, run the authenticated local
 gateway described in [OLLAMA_EXTERNAL_SETUP.md](OLLAMA_EXTERNAL_SETUP.md) and
-set its current Quick Tunnel URL as `OLLAMA_BASE_URL_10_3_2`. The tunnel host
+set its current Quick Tunnel URL as `OLLAMA_BASE_URL_14`. The tunnel host
 and Vercel Preview must share the same `AUTH_TOKEN`. Redeploy Preview after
 updating the URL or token. Quick Tunnel URLs change when restarted.
 Set `TTS_API_KEY` and `TTS_VOICE` as encrypted Vercel Preview environment

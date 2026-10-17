@@ -28,6 +28,8 @@ def _preview_env_text(public_url: str, values: Dict[str, str]) -> str:
     entries = {
         "OLLAMA_BASE_URL": public_url,
         "OLLAMA_MODEL": values["OLLAMA_MODEL"],
+        "OLLAMA_BASE_URL_14": public_url,
+        "OLLAMA_MODEL_13": values["OLLAMA_MODEL"],
         "TTS_PROVIDER": "elevenlabs",
         "TTS_API_KEY": values["TTS_API_KEY"],
         "TTS_VOICE": values["TTS_VOICE"],
@@ -74,7 +76,14 @@ def prepare_preview(
 
     def copy_preview_values(public_url: str) -> None:
         values["OLLAMA_BASE_URL"] = public_url
-        _save_env_values(env_path, {"OLLAMA_BASE_URL": public_url})
+        _save_env_values(
+            env_path,
+            {
+                "OLLAMA_BASE_URL": public_url,
+                "OLLAMA_BASE_URL_14": public_url,
+                "OLLAMA_MODEL_13": verified_model,
+            },
+        )
         clipboard_writer(_preview_env_text(public_url, values))
         print(
             "Preview environment variables copied to clipboard. Paste them into the Vercel Preview environment.",

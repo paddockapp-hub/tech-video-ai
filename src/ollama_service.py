@@ -17,6 +17,7 @@ except ImportError:
 
 
 PRIORITY_CANDIDATES = [
+    ("OLLAMA_BASE_URL_14", "OLLAMA_MODEL_13"),
     ("OLLAMA_BASE_URL_10_3_2", "OLLAMA_MODEL_8_3_2"),
     ("OLLAMA_BASE_URL_10_3", "OLLAMA_MODEL_8_3"),
     ("OLLAMA_BASE_URL_10_2", "OLLAMA_MODEL_8_2"),
@@ -37,6 +38,7 @@ BASE_URL_NAMES = [
     "OLLAMA_BASE_URL_10_2",
     "OLLAMA_BASE_URL_10_3",
     "OLLAMA_BASE_URL_10_3_2",
+    "OLLAMA_BASE_URL_14",
 ]
 MODEL_NAMES = [
     "OLLAMA_MODEL",
@@ -51,6 +53,7 @@ MODEL_NAMES = [
     "OLLAMA_MODEL_8_2",
     "OLLAMA_MODEL_8_3",
     "OLLAMA_MODEL_8_3_2",
+    "OLLAMA_MODEL_13",
 ]
 
 
@@ -63,6 +66,15 @@ class OllamaUnavailableError(RuntimeError):
 
 
 class OllamaService:
+    _MODEL_VALUE_PATTERN = re.compile(
+        r"^[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$"
+    )
+    _MODEL_TOKEN_PATTERN = re.compile(
+        r"(?<![A-Za-z0-9._/-])"
+        r"[A-Za-z0-9][A-Za-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?"
+        r"(?![A-Za-z0-9._/-])"
+    )
+
     def __init__(
         self,
         host: str = "http://localhost:11434",
@@ -89,6 +101,22 @@ class OllamaService:
     def _normalize_url(url: str) -> str:
         return url.rstrip("/")
 
+    @classmethod
+    def _normalize_model(cls, value: Optional[str]) -> Optional[str]:
+        resolved = resolve_env_value(value)
+        if not resolved:
+            return None
+        cleaned = resolved.strip().strip("`'\";,")
+        if cls._MODEL_VALUE_PATTERN.fullmatch(cleaned):
+            return cleaned
+        for token in cls._MODEL_TOKEN_PATTERN.findall(cleaned):
+            if (
+                cls._MODEL_VALUE_PATTERN.fullmatch(token)
+                and re.search(r"[0-9.:/-]", token)
+            ):
+                return token
+        return None
+
     @staticmethod
     def _is_placeholder_url(url: str) -> bool:
         try:
@@ -111,6 +139,8 @@ class OllamaService:
         ordered_pairs = list(PRIORITY_CANDIDATES)
 
         for url_name in BASE_URL_NAMES:
+            if url_name == "OLLAMA_BASE_URL_14":
+                continue
             suffix = url_name[len("OLLAMA_BASE_URL"):]
             model_name = f"OLLAMA_MODEL{suffix}"
             pair = (url_name, model_name)
@@ -119,13 +149,17 @@ class OllamaService:
 
         for url_name, model_name in ordered_pairs:
             url_value = get_env_value(url_name)
-            model_value = get_env_value(model_name)
+            model_value = self._normalize_model(get_env_value(model_name))
             if not model_value and url_name == "OLLAMA_BASE_URL":
-                model_value = self.model
+                model_value = self._normalize_model(self.model)
+            if not model_value and url_name == "OLLAMA_BASE_URL_14":
+                model_value = (
+                    self._normalize_model(get_env_value("OLLAMA_MODEL"))
+                    or "llama3.2:latest"
+                )
             if not url_value or not model_value:
                 continue
             url = self._normalize_url(url_value.strip())
-            model_value = model_value.strip()
             if not url or not model_value or (url, model_value) in seen:
                 continue
             seen.add((url, model_value))
@@ -158,10 +192,10 @@ class OllamaService:
         if host:
             normalized_host = self._normalize_url(host.strip())
             for model_name in MODEL_NAMES:
-                model_value = get_env_value(model_name)
+                model_value = self._normalize_model(get_env_value(model_name))
                 if not model_value:
                     continue
-                pair = (normalized_host, model_value.strip())
+                pair = (normalized_host, model_value)
                 if pair in seen:
                     continue
                 seen.add(pair)

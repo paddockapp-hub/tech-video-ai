@@ -77,8 +77,8 @@ In the Preview environment, set the highest-priority Ollama pair to the
 printed URL and the locally verified model:
 
 ```env
-OLLAMA_BASE_URL_10_3_2=https://<assigned-host>.trycloudflare.com
-OLLAMA_MODEL_8_3_2=llama3.2:latest
+OLLAMA_BASE_URL_14=https://<assigned-host>.trycloudflare.com
+OLLAMA_MODEL_13=llama3.2:latest
 AUTH_TOKEN=<same secret configured on the Ollama host>
 ```
 
@@ -89,7 +89,7 @@ requires the credential and allows only `/api/version`, `/api/tags`,
 and `/api/generate` for the verified local model with streaming disabled.
 
 Cloudflare Quick Tunnel URLs change when the tunnel restarts. Update
-`OLLAMA_BASE_URL_10_3_2` in Preview each time the URL changes. For a stable
+`OLLAMA_BASE_URL_14` in Preview each time the URL changes. For a stable
 production hostname, use a named Cloudflare Tunnel and configure its DNS and
 Cloudflare Access policy; do not point a public tunnel directly at port 11434.
 
