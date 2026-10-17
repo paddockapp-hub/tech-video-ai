@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from scripts.verify_remote_services import verify_elevenlabs, verify_ollama
+from scripts.verify_remote_services import main, verify_elevenlabs, verify_ollama
 
 
 class RemoteServiceVerificationTests(unittest.TestCase):
@@ -61,6 +61,27 @@ class RemoteServiceVerificationTests(unittest.TestCase):
 
         self.assertNotIn("private-key", repr(output.call_args))
         output.assert_called_once_with("ELEVENLABS=http-401-invalid-response")
+
+    @patch("scripts.verify_remote_services.verify_elevenlabs", return_value=False)
+    @patch("scripts.verify_remote_services.verify_ollama", return_value=True)
+    @patch("scripts.verify_remote_services.OllamaService")
+    def test_main_uses_highest_priority_discovered_candidate(
+        self,
+        service_class,
+        verify_ollama_mock,
+        _verify_elevenlabs_mock,
+    ):
+        service_class.return_value.discover.return_value = {
+            "url": "https://newest.trycloudflare.com",
+            "model": "llama3.2:latest",
+        }
+        with patch("builtins.print"):
+            self.assertEqual(main(), 1)
+
+        verify_ollama_mock.assert_called_once_with(
+            "https://newest.trycloudflare.com",
+            "llama3.2:latest",
+        )
 
 
 if __name__ == "__main__":

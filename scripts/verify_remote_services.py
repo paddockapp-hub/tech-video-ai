@@ -10,8 +10,10 @@ import requests
 try:
     from dotenv import load_dotenv
     from src.env_utils import get_env_value
+    from src.ollama_service import OllamaService, OllamaUnavailableError
 except ImportError:
     from env_utils import get_env_value
+    from ollama_service import OllamaService, OllamaUnavailableError
     load_dotenv = None
 
 
@@ -106,10 +108,13 @@ def main() -> int:
     if load_dotenv:
         load_dotenv(Path(".env"), override=False)
 
-    ollama_ok = verify_ollama(
-        get_env_value("OLLAMA_BASE_URL"),
-        get_env_value("OLLAMA_MODEL"),
-    )
+    try:
+        candidate = OllamaService().discover(refresh=True)
+    except OllamaUnavailableError as error:
+        print("OLLAMA=" + error.reason)
+        ollama_ok = False
+    else:
+        ollama_ok = verify_ollama(candidate["url"], candidate["model"])
     elevenlabs_ok = verify_elevenlabs(
         get_env_value("TTS_API_KEY") or get_env_value("apiKey"),
         get_env_value("TTS_VOICE"),
