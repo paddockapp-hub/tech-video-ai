@@ -1,0 +1,109 @@
+[
+  {
+    "id": "CREDIT_CONCURRENCY_2",
+    "name": "크레딧 1회 상태 동시 2건 요청",
+    "status": "PASS",
+    "details": "정확히 1건만 승인되고 1건은 차단되었습니다.",
+    "evidence": {
+      "r1": {
+        "success": true,
+        "remainingCredits": 0
+      },
+      "r2": {
+        "success": false,
+        "error": "잔여 생성 크레딧이 부족합니다."
+      },
+      "successes": 1
+    }
+  },
+  {
+    "id": "CREDIT_CONCURRENCY_10",
+    "name": "크레딧 1회 상태 동시 10건 스파이크 요청",
+    "status": "PASS",
+    "details": "동시 10건 중 정확히 1건만 승인되고 9건은 잔여 부족으로 안전하게 차단되었습니다.",
+    "evidence": {
+      "successes": 1,
+      "fails": 9
+    }
+  },
+  {
+    "id": "CREDIT_ZERO_BLOCK",
+    "name": "크레딧 0회 잔액 차단",
+    "status": "PASS",
+    "details": "잔여 크레딧 0회 상태에서 사전 검사 및 차감 시도가 모두 정상 거부되었습니다.",
+    "evidence": {
+      "check": {
+        "allowed": false,
+        "remainingCredits": 0,
+        "monthlyLimit": 3,
+        "usedCredits": 3,
+        "bonusCredits": 0,
+        "reason": "이번 달 생성 가능 횟수(3회)를 모두 소진하셨습니다. 멤버십을 업그레이드해주세요."
+      },
+      "deduct": {
+        "success": false,
+        "error": "잔여 생성 크레딧이 부족합니다."
+      }
+    }
+  },
+  {
+    "id": "IDEMPOTENT_DEDUCT",
+    "name": "동일 작업 ID(jobId) 중복 차감 방지 (멱등성)",
+    "status": "PASS",
+    "details": "동일한 jobId로 2회 요청이 인입되어도 크레딧은 정확히 1회만 차감되었습니다.",
+    "evidence": {
+      "firstCall": {
+        "success": true,
+        "remainingCredits": 9
+      },
+      "secondCall": {
+        "success": true,
+        "remainingCredits": 9
+      },
+      "usedCredits": 1
+    }
+  },
+  {
+    "id": "IDEMPOTENT_REFUND",
+    "name": "동일 작업 ID(jobId) 중복 환불 방지",
+    "status": "PASS",
+    "details": "동일한 jobId에 대해 2회 환불을 호출하여도 중복 환불되지 않고 안전하게 원복되었습니다.",
+    "evidence": {
+      "firstRefund": {
+        "success": true,
+        "remainingCredits": 10
+      },
+      "secondRefund": {
+        "success": true,
+        "remainingCredits": 10
+      },
+      "usedCredits": 0
+    }
+  },
+  {
+    "id": "AUTH_BRUTE_FORCE_DEFENSE",
+    "name": "로그인 5회 연속 실패 시 15분 차단 (Rate Limiter)",
+    "status": "PASS",
+    "details": "5회 실패 후 정상 차단됨 (남은 차단 시간: 900초)",
+    "evidence": {
+      "allowed": false,
+      "remainingSeconds": 900
+    }
+  },
+  {
+    "id": "BACKUP_INTEGRITY_RESTORE",
+    "name": "SHA-256 무결성 백업 생성 및 복원",
+    "status": "PASS",
+    "details": "백업 생성(backup_2026-11-06T16-21-43-777Z, 파일 4개), SHA-256 체크섬 일치, 복원 성공",
+    "evidence": {
+      "backupId": "backup_2026-11-06T16-21-43-777Z",
+      "verifyResult": {
+        "valid": true,
+        "errors": []
+      },
+      "restoreResult": {
+        "success": true
+      }
+    }
+  }
+]

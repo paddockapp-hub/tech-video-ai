@@ -1,0 +1,29 @@
+{
+  "id": "backup_2026-11-06T16-21-43-796Z",
+  "timestamp": "2026-11-06T16:21:43.816Z",
+  "files": [
+    {
+      "name": "admin_logs.json",
+      "sizeBytes": 646,
+      "sha256": "bba1f539daf681030c00a958d50624a6fee68eadf3e8fdabfebd8345bc8eab63"
+    },
+    {
+      "name": "credit_transactions.json",
+      "sizeBytes": 978,
+      "sha256": "2b3c4db6cbbe78219f13eeb99b3a7681e68f21c6f2225d23064cc9ce384065ff"
+    },
+    {
+      "name": "transfers.json",
+      "sizeBytes": 2,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "name": "users.json",
+      "sizeBytes": 2,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "totalFiles": 4,
+  "totalSizeBytes": 1628,
+  "integrityVerified": true
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "tx_mw56mif9",
+    "jobId": "job_unique_idem_100",
+    "userId": "test_user_idem_1793982103717",
+    "type": "refund",
+    "amount": 1,
+    "reason": "실패1",
+    "timestamp": "2026-11-06T16:21:43.749Z"
+  },
+  {
+    "id": "tx_mw56mieq",
+    "jobId": "job_unique_idem_100",
+    "userId": "test_user_idem_1793982103717",
+    "type": "deduct",
+    "amount": 1,
+    "reason": "영상 생성 요청 크레딧 차감",
+    "timestamp": "2026-11-06T16:21:43.730Z"
+  },
+  {
+    "id": "tx_mw56mias",
+    "jobId": "job_c10_0_1793982103579",
+    "userId": "test_user_c10_1793982103573",
+    "type": "deduct",
+    "amount": 1,
+    "reason": "영상 생성 요청 크레딧 차감",
+    "timestamp": "2026-11-06T16:21:43.588Z"
+  },
+  {
+    "id": "tx_mw56mi8m",
+    "jobId": "job_c2_1",
+    "userId": "test_user_c2_1793982103484",
+    "type": "deduct",
+    "amount": 1,
+    "reason": "영상 생성 요청 크레딧 차감",
+    "timestamp": "2026-11-06T16:21:43.510Z"
+  }
+]

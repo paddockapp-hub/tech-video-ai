@@ -1,0 +1,27 @@
+[
+  {
+    "adminId": "system",
+    "adminEmail": "system@shortsmaking.ai",
+    "action": "CREDIT_REFUND",
+    "targetId": "test_user_idem_1793982103717",
+    "details": {
+      "amount": 1,
+      "reason": "실패1",
+      "jobId": "job_unique_idem_100"
+    },
+    "id": "log_mw56mifdmbx",
+    "createdAt": "2026-11-06T16:21:43.753Z"
+  },
+  {
+    "adminId": "system",
+    "adminEmail": "system@shortsmaking.ai",
+    "action": "CREDIT_REFUND",
+    "targetId": "test_user_race_1793899789134",
+    "details": {
+      "amount": 1,
+      "reason": "정상 1차 환불"
+    },
+    "id": "log_mw3tm82x",
+    "createdAt": "2026-11-05T17:29:49.162Z"
+  }
+]
