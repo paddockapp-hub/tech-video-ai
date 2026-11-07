@@ -289,13 +289,16 @@ def compose_video(title, script, category, audio_path, subs_path, output_path, w
         fps=fps,
         codec="libx264",
         audio_codec="aac",
-        preset="medium",  # ultrafast → medium (퀄리티 향상)
-        bitrate="4000k",  # 고비트레이트로 퀄리티 향상
+        preset="slow",
+        bitrate="6000k",
         ffmpeg_params=[
-            "-crf", "20",  # CRF 20 (낮을수록 퀼리티 높음, 18-23 범위 권장)
-            "-pix_fmt", "yuv420p",  # 호환성 좋은 픽셀 포맷
-            "-movflags", "+faststart",  # 웹 스트리밍 최적화
-            "-b:a", "192k",  # 오디오 비트레이트 192kbps
+            "-crf", "18",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-b:a", "192k",
+            "-profile:v", "high",
+            "-level", "4.0",
+            "-tune", "film",
         ],
         threads=4,
         logger=None
