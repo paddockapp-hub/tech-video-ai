@@ -148,7 +148,7 @@ def group_subtitles_viral(entries, max_chars=14):
 
     return grouped
 
-def compose_video(title, script, category, audio_path, subs_path, output_path, width=1080, height=1920, fps=24):
+def compose_video(title, script, category, audio_path, subs_path, output_path, width=1080, height=1920, fps=30):
     import numpy as np
     from PIL import Image, ImageDraw, ImageFont
     from moviepy import AudioFileClip, VideoClip
@@ -289,7 +289,14 @@ def compose_video(title, script, category, audio_path, subs_path, output_path, w
         fps=fps,
         codec="libx264",
         audio_codec="aac",
-        preset="ultrafast",
+        preset="medium",  # ultrafast → medium (퀄리티 향상)
+        bitrate="4000k",  # 고비트레이트로 퀄리티 향상
+        ffmpeg_params=[
+            "-crf", "20",  # CRF 20 (낮을수록 퀼리티 높음, 18-23 범위 권장)
+            "-pix_fmt", "yuv420p",  # 호환성 좋은 픽셀 포맷
+            "-movflags", "+faststart",  # 웹 스트리밍 최적화
+            "-b:a", "192k",  # 오디오 비트레이트 192kbps
+        ],
         threads=4,
         logger=None
     )
