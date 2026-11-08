@@ -1,0 +1,7 @@
+tunnel: <CLOUDFLARE_TUNNEL_UUID>
+credentials-file: /etc/cloudflared/<CLOUDFLARE_TUNNEL_UUID>.json
+
+ingress:
+  - hostname: ollama.<YOUR_DOMAIN>
+    service: http://127.0.0.1:11434
+  - service: http_status:404

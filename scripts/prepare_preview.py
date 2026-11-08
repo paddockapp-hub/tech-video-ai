@@ -1,13 +1,12 @@
 """Prepare local Ollama and copy Preview environment variables to the clipboard."""
 
-import getpass
 import os
 import secrets
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from dotenv import load_dotenv, set_key
 
@@ -30,11 +29,13 @@ def _preview_env_text(public_url: str, values: Dict[str, str]) -> str:
         "OLLAMA_MODEL": values["OLLAMA_MODEL"],
         "OLLAMA_BASE_URL_14": public_url,
         "OLLAMA_MODEL_13": values["OLLAMA_MODEL"],
-        "TTS_PROVIDER": "elevenlabs",
-        "TTS_API_KEY": values["TTS_API_KEY"],
-        "TTS_VOICE": values["TTS_VOICE"],
+        "TTS_PROVIDER": values["TTS_PROVIDER"],
+        "TTS_LANGUAGE": values["TTS_LANGUAGE"],
         "AUTH_TOKEN": values["AUTH_TOKEN"],
     }
+    if values["TTS_PROVIDER"] == "elevenlabs":
+        entries["TTS_API_KEY"] = values["TTS_API_KEY"]
+        entries["TTS_VOICE"] = values["TTS_VOICE"]
     return "\n".join(f"{name}={value}" for name, value in entries.items()) + "\n"
 
 
@@ -53,15 +54,19 @@ def _copy_to_windows_clipboard(text: str) -> None:
 
 
 def prepare_preview(
-    tts_api_key: str,
-    tts_voice: str,
+    tts_api_key: Optional[str] = None,
+    tts_voice: Optional[str] = None,
     *,
     env_path: Path = ENV_PATH,
     tunnel_runner=_run_cloudflared,
     clipboard_writer=_copy_to_windows_clipboard,
 ) -> int:
-    if not tts_api_key.strip() or not tts_voice.strip():
-        raise ValueError("An ElevenLabs API key and voice ID are required.")
+    api_key = (tts_api_key or get_env_value("TTS_API_KEY") or get_env_value("apiKey") or "").strip()
+    voice_id = (tts_voice or get_env_value("TTS_VOICE") or "").strip()
+    if bool(api_key) != bool(voice_id):
+        raise ValueError("Configure both the ElevenLabs API key and voice ID, or configure neither to use gTTS.")
+    tts_provider = "elevenlabs" if api_key and voice_id else "gtts"
+    tts_language = get_env_value("TTS_LANGUAGE", "ko-KR") or "ko-KR"
 
     model = get_env_value("OLLAMA_MODEL", "llama3.2:latest") or "llama3.2:latest"
     verified_model = _verify_local_ollama(model)
@@ -69,9 +74,12 @@ def prepare_preview(
     values = {
         "AUTH_TOKEN": auth_token,
         "OLLAMA_MODEL": verified_model,
-        "TTS_API_KEY": tts_api_key.strip(),
-        "TTS_VOICE": tts_voice.strip(),
+        "TTS_PROVIDER": tts_provider,
+        "TTS_LANGUAGE": tts_language,
     }
+    if tts_provider == "elevenlabs":
+        values["TTS_API_KEY"] = api_key
+        values["TTS_VOICE"] = voice_id
     _save_env_values(env_path, values)
 
     def copy_preview_values(public_url: str) -> None:
@@ -82,11 +90,13 @@ def prepare_preview(
                 "OLLAMA_BASE_URL": public_url,
                 "OLLAMA_BASE_URL_14": public_url,
                 "OLLAMA_MODEL_13": verified_model,
+                "TTS_PROVIDER": tts_provider,
+                "TTS_LANGUAGE": tts_language,
             },
         )
         clipboard_writer(_preview_env_text(public_url, values))
         print(
-            "Preview environment variables copied to clipboard. Paste them into the Vercel Preview environment.",
+            f"Preview variables copied to clipboard with {tts_provider} TTS. Paste them into the Vercel Preview environment.",
             flush=True,
         )
 
@@ -109,11 +119,8 @@ def main() -> int:
         print(str(error), file=sys.stderr)
         return 1
 
-    print("Enter a newly rotated ElevenLabs key; the key will not be echoed or logged.")
-    api_key = getpass.getpass("ElevenLabs API key: ")
-    voice_id = input("ElevenLabs voice ID: ").strip()
     try:
-        return prepare_preview(api_key, voice_id)
+        return prepare_preview()
     except (OSError, RuntimeError, ValueError) as error:
         print(str(error), file=sys.stderr)
         return 1

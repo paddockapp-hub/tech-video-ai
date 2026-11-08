@@ -4,6 +4,7 @@ Integrated Main Module
 """
 
 import os
+import posixpath
 import sys
 import argparse
 import json
@@ -54,7 +55,9 @@ class IntegratedSystem:
     
     def _load_config(self, config_path: str = None) -> Dict:
         """설정 파일 로드"""
-        
+        is_vercel_deployment = get_env_value('VERCEL') == '1'
+        runtime_work_dir = '/tmp/engineering-shorts' if is_vercel_deployment else None
+
         default_config = {
             'openai_api_key': get_env_value('OPENAI_API_KEY'),
             'openai_model': get_env_value('OPENAI_MODEL', 'gpt-4'),
@@ -65,8 +68,14 @@ class IntegratedSystem:
             'fps': int(get_env_value('FPS', '30') or '30'),
             'image_width': int(get_env_value('IMAGE_WIDTH', '1080') or '1080'),
             'image_height': int(get_env_value('IMAGE_HEIGHT', '1920') or '1920'),
-            'output_dir': get_env_value('OUTPUT_DIR', 'output'),
-            'temp_dir': get_env_value('TEMP_DIR', 'temp'),
+            'output_dir': get_env_value(
+                'OUTPUT_DIR',
+                posixpath.join(runtime_work_dir, 'output') if runtime_work_dir else 'output',
+            ),
+            'temp_dir': get_env_value(
+                'TEMP_DIR',
+                posixpath.join(runtime_work_dir, 'temp') if runtime_work_dir else 'temp',
+            ),
             # 로컬 AI 설정
             'use_local_ai': (get_env_value('USE_LOCAL_AI', 'false') or 'false').lower() == 'true',
             'ollama_host': get_env_value('OLLAMA_HOST', 'http://localhost:11434'),
@@ -88,10 +97,21 @@ class IntegratedSystem:
             # 스토리지 설정
             'storage_type': get_env_value(
                 'STORAGE_TYPE',
-                'vercel' if get_env_value('BLOB_READ_WRITE_TOKEN') else 'local'
+                'vercel'
+                if get_env_value('BLOB_READ_WRITE_TOKEN') or is_vercel_deployment
+                else 'local'
             ),
             'blob_read_write_token': get_env_value('BLOB_READ_WRITE_TOKEN'),
-            'local_storage_dir': get_env_value('LOCAL_STORAGE_DIR', 'uploads'),
+            'require_persistent_storage': (
+                get_env_value(
+                    'REQUIRE_PERSISTENT_STORAGE',
+                    'true' if is_vercel_deployment else 'false',
+                ) or 'false'
+            ).lower() == 'true',
+            'local_storage_dir': get_env_value(
+                'LOCAL_STORAGE_DIR',
+                posixpath.join(runtime_work_dir, 'uploads') if runtime_work_dir else 'uploads',
+            ),
             's3_bucket_name': get_env_value('S3_BUCKET_NAME'),
             'aws_access_key_id': get_env_value('AWS_ACCESS_KEY_ID'),
             'aws_secret_access_key': get_env_value('AWS_SECRET_ACCESS_KEY'),

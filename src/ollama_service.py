@@ -12,8 +12,10 @@ import requests
 
 try:
     from .env_utils import get_env_value, resolve_env_value
+    from .scene_prompts import build_fallback_prompts
 except ImportError:
     from env_utils import get_env_value, resolve_env_value
+    from scene_prompts import build_fallback_prompts
 
 
 PRIORITY_CANDIDATES = [
@@ -226,7 +228,10 @@ class OllamaService:
 
     @staticmethod
     def _request_headers(url: str) -> Dict[str, str]:
-        parsed = urlsplit(url)
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            return {}
         if (
             parsed.scheme == "https"
             and parsed.hostname
@@ -235,6 +240,29 @@ class OllamaService:
             token = get_env_value("AUTH_TOKEN")
             if token:
                 return {"Authorization": f"Bearer {token}"}
+        configured_url = get_env_value("OLLAMA_BASE_URL")
+        if configured_url:
+            try:
+                configured = urlsplit(configured_url.rstrip("/"))
+                configured_port = configured.port
+                request_port = parsed.port
+            except ValueError:
+                return {}
+            if (
+                parsed.scheme == "https"
+                and configured.scheme == "https"
+                and not (configured.username or configured.password)
+                and parsed.hostname
+                and parsed.hostname.lower() == (configured.hostname or "").lower()
+                and request_port == configured_port
+            ):
+                client_id = get_env_value("CF_ACCESS_CLIENT_ID")
+                client_secret = get_env_value("CF_ACCESS_CLIENT_SECRET")
+                if client_id and client_secret:
+                    return {
+                        "CF-Access-Client-Id": client_id,
+                        "CF-Access-Client-Secret": client_secret,
+                    }
         return {}
 
     @staticmethod
@@ -356,7 +384,13 @@ class OllamaService:
         except OllamaUnavailableError:
             return []
 
-    def generate_text(self, prompt: str, model: str = None) -> str:
+    def generate_text(
+        self,
+        prompt: str,
+        model: str = None,
+        options: Dict = None,
+        output_format: Dict = None,
+    ) -> str:
         """Generate JSON-capable text; retain the legacy fallback with an explicit source."""
         try:
             candidate = self.discover()
@@ -372,8 +406,8 @@ class OllamaService:
                     "model": requested_model,
                     "prompt": prompt,
                     "stream": False,
-                    "format": "json",
-                    "options": {"temperature": 0.7, "top_p": 0.9},
+                    "format": output_format or "json",
+                    "options": options or {"temperature": 0.7, "top_p": 0.9},
                 },
                 timeout=300,
             )
@@ -398,27 +432,81 @@ class OllamaService:
 
     def analyze_script_for_images(self, script_text: str, num_keyframes: int) -> List[Dict]:
         """Create keyframe prompts and preserve fallback provenance."""
+        scene_schema = {
+            "type": "object",
+            "properties": {
+                "keyframes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "scene_number": {"type": "integer"},
+                            "description": {"type": "string"},
+                            "base_prompt": {"type": "string"},
+                            "infographic_prompt": {"type": "string"},
+                        },
+                        "required": [
+                            "scene_number",
+                            "description",
+                            "base_prompt",
+                            "infographic_prompt",
+                        ],
+                        "additionalProperties": False,
+                    },
+                    "minItems": num_keyframes,
+                    "maxItems": num_keyframes,
+                }
+            },
+            "required": ["keyframes"],
+            "additionalProperties": False,
+        }
         prompt = f"""
-You are an engineering visualization content creator. Analyze the following script and create image generation prompts for {num_keyframes} keyframes.
+You are an engineering storyboard artist. Create exactly {num_keyframes} distinct, chronological scene prompts for this short video.
 
 Script: {script_text}
 
-Return valid JSON in this shape:
-{{"keyframes":[{{"scene_number":1,"description":"...","base_prompt":"...","infographic_prompt":"...","visual_elements":["..."],"engineering_concept":"..."}}]}}
+Return only compact JSON with this exact shape and scene_number values from 1 to {num_keyframes}:
+{{"keyframes":[{{"scene_number":1,"description":"one concrete visual beat","base_prompt":"short image prompt showing the object/action","infographic_prompt":"short labeled diagram prompt showing the same beat"}}]}}
+Keep each value concise. Show specific objects, forces, motion, and cause/effect from the script. Do not invent measurements or unrelated objects.
 """
-        response_text = self.generate_text(prompt)
+        response_text = self.generate_text(
+            prompt,
+            options={
+                "temperature": 0.25,
+                "top_p": 0.85,
+                "num_predict": min(4096, max(1024, num_keyframes * 220)),
+            },
+            output_format=scene_schema,
+        )
         if self.last_generation_source != "ollama":
             self.last_analysis_source = "fallback"
             return self._generate_fallback_prompts(script_text, num_keyframes)
         try:
             result = json.loads(response_text)
             keyframes = result.get("keyframes") if isinstance(result, dict) else result
-            if isinstance(keyframes, list) and len(keyframes) == num_keyframes:
+            valid_scenes = (
+                isinstance(keyframes, list)
+                and len(keyframes) == num_keyframes
+                and all(
+                    isinstance(item, dict)
+                    and item.get("scene_number") == index + 1
+                    and isinstance(item.get("description"), str)
+                    and item["description"].strip()
+                    and isinstance(item.get("base_prompt"), str)
+                    and item["base_prompt"].strip()
+                    and isinstance(item.get("infographic_prompt"), str)
+                    and item["infographic_prompt"].strip()
+                    for index, item in enumerate(keyframes)
+                )
+            )
+            if valid_scenes:
                 self.last_analysis_source = "ollama"
+                self.last_error = None
                 return keyframes
         except (ValueError, TypeError):
             pass
         self.last_analysis_source = "fallback"
+        self.last_error = "ollama-invalid-storyboard"
         return self._generate_fallback_prompts(script_text, num_keyframes)
 
     def organize_clip_sequence(self, clips_info: List[Dict]) -> List[Dict]:
@@ -446,18 +534,7 @@ Return valid JSON in this shape:
         return f"AI service unavailable. Fallback response for: {prompt[:50]}..."
 
     def _generate_fallback_prompts(self, script_text: str, num_keyframes: int) -> List[Dict]:
-        return [
-            {
-                "scene_number": index + 1,
-                "description": f"Scene {index + 1} for engineering visualization",
-                "base_prompt": f"Engineering visualization scene {index + 1}, clean background, professional style",
-                "infographic_prompt": f"Engineering visualization scene {index + 1} with detailed infographics and diagrams",
-                "visual_elements": ["engineering elements", "technical diagrams"],
-                "engineering_concept": "Engineering concept visualization",
-                "source": "fallback",
-            }
-            for index in range(num_keyframes)
-        ]
+        return build_fallback_prompts(script_text, num_keyframes)
 
     def pull_model(self, model_name: str) -> bool:
         try:

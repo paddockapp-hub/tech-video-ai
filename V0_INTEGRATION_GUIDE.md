@@ -1,5 +1,13 @@
 # Ollama → v0.dev 통합 가이드
 
+> **배포 안내:** 이 문서는 v0에 넣을 웹사이트 콘텐츠를 만드는 참고 자료이며,
+> 현재 앱을 배포하는 절차가 아닙니다. 이 저장소의 실제 앱은 Next.js가 아닌
+> Python Flask 백엔드입니다. v0가 생성한 Next.js 코드를 이 저장소의 백엔드
+> 대신 배포하지 마세요. 앱을 배포하려면 GitHub 저장소를 Vercel 프로젝트에
+> 연결하고, 영상 저장용 Vercel Blob을 설정한 뒤 Vercel에서 배포해야 합니다.
+> Vercel 설정 및 출시 제한은 [GITHUB_VERCEL_DEPLOYMENT.md](GITHUB_VERCEL_DEPLOYMENT.md)를
+> 참고하세요.
+
 ## 🎯 개요
 Ollama에서 생성된 콘텐츠를 v0.dev (Vercel AI 웹사이트 빌더)를 사용하여 웹사이트로 변환하는 방법
 

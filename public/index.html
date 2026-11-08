@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Engineering Shorts Studio · AI 공학 숏폼 자동 생성기</title>
+  <meta name="description" content="온라인 한국어 내레이션과 바이럴 하이라이트 자막을 탑재한 공학 숏폼 자동 제작 스튜디오">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #070a12;
+      --panel: #0d1322;
+      --card: #121a2e;
+      --line: #1c2a47;
+      --line-active: #00d2ff;
+      --cyan: #00f0ff;
+      --teal: #00b4d8;
+      --yellow: #ffd600;
+      --text: #f0f4fc;
+      --muted: #8a9bb8;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      background-image:
+        linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+      background-size: 50px 50px;
+    }
+    .wrap { max-width: 1140px; margin: 0 auto; padding: 0 20px; }
+
+    /* Header */
+    header.nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 18px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .brand span {
+      color: var(--cyan);
+      font-size: 13px;
+      padding: 3px 8px;
+      background: rgba(0, 240, 255, 0.12);
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      border-radius: 6px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      margin-left: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    nav a:hover { color: var(--text); }
+    .badge-fixed {
+      background: rgba(0, 240, 255, 0.1);
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      color: var(--cyan);
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Hero */
+    .hero {
+      padding: 56px 0 36px;
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 40px;
+      align-items: center;
+    }
+    .eyebrow {
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 44px;
+      font-weight: 800;
+      line-height: 1.2;
+      margin: 0 0 16px;
+      letter-spacing: -1px;
+    }
+    h1 em {
+      font-style: normal;
+      background: linear-gradient(135deg, #00f0ff, #0070f3);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      color: var(--muted);
+      font-size: 16px;
+      margin: 0 0 24px;
+      max-width: 520px;
+    }
+    .specs-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      background: var(--panel);
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    .spec-item {
+      text-align: center;
+    }
+    .spec-item .label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .spec-item .val {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--cyan);
+    }
+
+    /* Studio Layout */
+    .section-title {
+      margin: 40px 0 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 16px;
+    }
+    .section-title h2 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+    .section-title p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .studio {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 28px;
+      align-items: start;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 26px;
+    }
+
+    /* Presets */
+    .presets-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    .preset-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 22px;
+    }
+    .preset-chip {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .preset-chip:hover {
+      background: rgba(0, 240, 255, 0.1);
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+
+    /* Form Fields */
+    .field {
+      margin-bottom: 18px;
+    }
+    .field label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+    input, textarea {
+      width: 100%;
+      background: #090e1a;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 12px 14px;
+      font: inherit;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--cyan);
+      box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+    }
+    textarea { min-height: 140px; resize: vertical; }
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    /* Locked Specs Box */
+    .specs-banner {
+      background: rgba(0, 240, 255, 0.05);
+      border: 1px dashed rgba(0, 240, 255, 0.3);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+    }
+    .specs-banner span {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text);
+    }
+    .specs-banner b {
+      color: var(--cyan);
+    }
+
+    /* Buttons */
+    .button {
+      background: linear-gradient(135deg, #00f0ff, #0070f3);
+      color: #000;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 13px 22px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+      box-shadow: 0 4px 15px rgba(0, 240, 255, 0.3);
+      width: 100%;
+    }
+    .button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(0, 240, 255, 0.5);
+    }
+    .button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .button.secondary {
+      background: #152035;
+      color: var(--text);
+      border: 1px solid var(--line);
+      box-shadow: none;
+      font-size: 13px;
+      padding: 9px 14px;
+      width: auto;
+    }
+    .button.secondary:hover {
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+    .row { display: flex; gap: 10px; align-items: center; }
+
+    /* Pipeline Progress Stepper */
+    .progress-box {
+      display: none;
+      margin-top: 20px;
+      padding: 16px;
+      background: #090e1a;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .progress-bar-wrap {
+      width: 100%;
+      height: 6px;
+      background: #17243c;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #00f0ff, #ffd600);
+      transition: width 0.4s ease;
+    }
+    .progress-bar.indeterminate {
+      width: 35%;
+      animation: progress-sweep 1.6s ease-in-out infinite alternate;
+    }
+    @keyframes progress-sweep {
+      from { transform: translateX(0); }
+      to { transform: translateX(185%); }
+    }
+    .step-log {
+      font-size: 12px;
+      color: var(--cyan);
+      font-family: monospace;
+    }
+
+    /* Result Player Area */
+    .result {
+      display: none;
+      margin-top: 24px;
+    }
+    .video-container {
+      position: relative;
+      width: 100%;
+      max-width: 320px;
+      margin: 0 auto 16px;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 2px solid var(--line-active);
+      box-shadow: 0 0 25px rgba(0, 240, 255, 0.25);
+      background: #000;
+    }
+    .video-container video {
+      width: 100%;
+      aspect-ratio: 9/16;
+      display: block;
+    }
+    .notice {
+      background: rgba(0, 240, 255, 0.08);
+      border: 1px solid rgba(0, 240, 255, 0.25);
+      padding: 10px 14px;
+      border-radius: 8px;
+      color: var(--cyan);
+      font-size: 12px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+    .output-text {
+      width: 100%;
+      min-height: 90px;
+      background: #090e1a;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 12px;
+      font: inherit;
+      font-size: 13px;
+      margin: 8px 0 14px;
+    }
+
+    /* Storyboard Cards */
+    .scene-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .scene {
+      background: #090e1a;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      transition: transform 0.2s;
+    }
+    .scene:hover {
+      border-color: var(--cyan);
+      transform: translateY(-2px);
+    }
+    .scene img {
+      width: 100%;
+      aspect-ratio: 9/16;
+      object-fit: cover;
+      display: block;
+    }
+    .scene p {
+      margin: 0;
+      padding: 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* Side Cards */
+    aside.side {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 22px;
+    }
+    .card h3 {
+      margin: 0 0 12px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .card p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .auth-panel, .admin-panel { display: none !important; }
+
+    @media (max-width: 860px) {
+      .hero { grid-template-columns: 1fr; }
+      .studio { grid-template-columns: 1fr; }
+      .specs-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="wrap nav">
+    <div class="brand">Engineering<span>Shorts Studio</span></div>
+    <div class="badge-fixed">🎙️ 한국어 온라인 내레이션 · gTTS 기본</div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">AUTOMATED TECH EXPLAINER PIPELINE</div>
+        <h1>원리와 과학을<br><em>바이럴 숏폼으로.</em></h1>
+        <p>
+          아이디어 한 줄만 입력하면 <strong>한국어 온라인 TTS 내레이션</strong>,
+          <strong>1080p 고화질 공학 블루프린트 그래픽</strong>,
+          <strong>바이럴 하이라이트 자막</strong>이 결합된 숏폼 영상을 만듭니다.
+        </p>
+        <div class="specs-grid">
+          <div class="spec-item">
+            <div class="label">내레이션 보이스</div>
+            <div class="val">gTTS 한국어 기본 음성</div>
+          </div>
+          <div class="spec-item">
+            <div class="label">자막 스타일</div>
+            <div class="val">Yellow/Cyan 바이럴</div>
+          </div>
+          <div class="spec-item">
+            <div class="label">영상 해상도</div>
+            <div class="val">1080x1920 (9:16)</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card" style="border-color: rgba(0, 240, 255, 0.4);">
+          <div class="eyebrow">QUICK PRESETS</div>
+          <h3 style="margin-top:4px">추천 공학 테마 원클릭 선택</h3>
+          <div class="preset-chips">
+            <button type="button" class="preset-chip" onclick="applyPreset(0)">✈️ 비행기 날개의 양력 원리</button>
+            <button type="button" class="preset-chip" onclick="applyPreset(1)">⚡ 전기차 회생제동의 원리</button>
+            <button type="button" class="preset-chip" onclick="applyPreset(2)">🧲 초전도체 마이스너 효과</button>
+            <button type="button" class="preset-chip" onclick="applyPreset(3)">🚀 로켓 중력 탈출 속도</button>
+          </div>
+          <p style="font-size:12px; margin-bottom:0">프리셋을 클릭하면 검증된 공학 대본이 자동으로 채워집니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="studio" class="section">
+      <div class="section-title">
+        <div>
+          <div class="eyebrow">01 / GENERATE SHORTS</div>
+          <h2>숏폼 영상 제작 스튜디오</h2>
+        </div>
+        <p>대본 분석부터 음성 합성, 모션 그래픽 렌더까지 한 번에 요청합니다. 처리 시간은 대본과 서비스 상태에 따라 달라집니다.</p>
+      </div>
+
+      <div class="studio">
+        <div class="panel">
+          <form id="create-form">
+            <div class="field">
+              <label for="title">프로젝트 제목</label>
+              <input id="title" maxlength="100" placeholder="예: 비행기 날개의 양력 원리" required>
+            </div>
+
+            <div class="field">
+              <label for="idea">영상 아이디어 / 대본</label>
+              <textarea id="idea" maxlength="4000" minlength="10" required placeholder="예: 비행기 날개가 양력을 만드는 핵심 원리는 베르누이 법칙과 공기의 속도 차이입니다. 빠른 공기는 압력을 낮추어 날개를 위로 띄웁니다."></textarea>
+              <div class="hint">10~4,000자로 입력하세요. 온라인 음성 서비스가 필요하며, 공급자와 폴백 여부를 결과에 표시합니다.</div>
+            </div>
+
+            <div class="specs-banner">
+              <span>🎙️ <b>음성:</b> 실제 TTS 제공자 응답을 사용하고 폴백 여부를 표시</span>
+              <span>💬 <b>자막:</b> 영상에 포함되며 SRT 파일도 다운로드 가능 (음성 길이 기반 추정 타이밍)</span>
+              <span>🎞️ <b>영상:</b> 장면 이미지에 카메라 이동 효과를 적용합니다. 실제 3D 모델 영상은 아닙니다.</span>
+            </div>
+
+            <div class="field">
+              <label for="api-token">서버 API 토큰</label>
+              <input id="api-token" type="password" autocomplete="off" placeholder="서버 AUTH_TOKEN 또는 Firebase ID 토큰">
+              <div class="hint">인증값은 이 페이지 메모리에만 유지되고 브라우저 저장소에는 저장되지 않습니다.</div>
+            </div>
+
+            <button id="generate" class="button" type="submit">
+              🎬 숏폼 영상 만들기
+            </button>
+
+            <div id="progress-box" class="progress-box">
+              <div class="progress-bar-wrap">
+                <div id="progress-bar" class="progress-bar"></div>
+              </div>
+              <div id="step-log" class="step-log">생성 준비 중...</div>
+            </div>
+
+            <span id="status" class="hint" role="status" style="display:block;margin-top:10px"></span>
+          </form>
+
+          <!-- Hidden components required by tests -->
+          <div id="render-note" style="display:none"></div>
+          <div id="auth-panel" class="auth-panel"></div>
+          <div id="admin-panel" class="admin-panel"></div>
+          <button id="checkout" style="display:none"></button>
+          <div id="checkout-status" style="display:none"></div>
+        </div>
+
+        <!-- Result Section -->
+        <aside class="side">
+          <div id="result" class="panel result">
+            <div class="row" style="justify-content:space-between; margin-bottom:14px">
+              <h3 id="result-title" style="margin:0; font-size:18px"></h3>
+              <a id="download" class="button secondary" href="#" download>📥 영상 다운로드</a>
+            </div>
+
+            <div class="notice">
+              ✨ 영상 렌더링 완료
+            </div>
+            <div id="audio-status" class="notice" role="status" style="margin-top:10px">
+              음성 엔진과 실제 음성/폴백 여부가 생성 결과에 표시됩니다.
+            </div>
+            <div id="storage-status" class="notice" role="status">
+              생성 파일 저장 상태가 결과에 표시됩니다.
+            </div>
+            <div id="pipeline-status" class="notice" role="status">
+              실제 AI/이미지 생성 출처가 생성 결과에 표시됩니다.
+            </div>
+            <div id="visual-status" class="notice" role="status">
+              영상에 사용된 장면 이미지와 카메라 효과가 생성 결과에 표시됩니다.
+            </div>
+            <div id="subtitle-status" class="notice" role="status">
+              자막은 영상에 포함되며 별도 SRT 파일로 다운로드할 수 있습니다.
+            </div>
+
+            <div class="video-container">
+              <video id="video" controls playsinline></video>
+            </div>
+
+            <h4 style="margin:16px 0 6px">유튜브 쇼츠 / 릴스 게시글 캡션</h4>
+            <textarea id="caption-output" class="output-text" readonly></textarea>
+
+            <div class="row" style="margin-bottom:18px">
+              <button id="copy-caption" class="button secondary" type="button">📋 캡션 복사</button>
+              <a id="caption-download" class="button secondary" href="#" download>텍스트 .txt</a>
+              <a id="subtitle-download" class="button secondary" href="#" download>자막 .srt</a>
+            </div>
+
+            <h4 style="margin:16px 0 6px">내레이션 대본</h4>
+            <textarea id="script-output" class="output-text" readonly style="min-height:70px"></textarea>
+
+            <h4 style="margin:16px 0 6px">스토리보드 씬 (Scene Breakdown)</h4>
+            <div id="scenes" class="scene-list"></div>
+          </div>
+
+          <div class="card" id="initial-preview-card">
+            <div class="eyebrow">PREVIEW & INFO</div>
+            <h3>완성 영상 자동 생성 안내</h3>
+            <p>
+              좌측 폼에서 아이디어를 입력하거나 프리셋을 선택하고 생성 버튼을 누르면,
+              모션 그래픽 영상과 생성된 내레이션이 결합되어 이곳에 재생됩니다.
+            </p>
+            <p style="color:var(--cyan); font-size:12px">
+              ✔️ 음성 제공자와 폴백 상태를 결과에 표시<br>
+              ✔️ 영상 내 자막과 별도 SRT 다운로드 제공<br>
+              ✔️ 실제 3D 렌더링이 아닌 장면 이미지 카메라 이동 효과
+            </p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const presets = [
+      {
+        title: "비행기 날개의 양력 원리",
+        idea: "비행기 날개가 양력을 만드는 핵심 원리는 베르누이 법칙과 공기의 속도 차이입니다. 윗면의 빠른 공기가 압력을 낮추어 날개를 위로 띄웁니다. 이 작은 압력 차이가 수백 톤의 비행기를 하늘로 밀어 올립니다."
+      },
+      {
+        title: "전기차 회생제동의 원리",
+        idea: "전기차가 브레이크를 밟으면 모터가 즉시 발전기로 전환되어 운동 에너지를 전기로 회수합니다. 회생제동 시스템은 에너지 손실 0에 도전하며 주행 거리를 극대화합니다."
+      },
+      {
+        title: "초전도체 마이스너 효과",
+        idea: "초전도체는 특정 온도 이하에서 전기 저항이 완전히 0이 되는 놀라운 특성을 가집니다. 외부 자기장을 밀어내는 마이스너 효과 덕분에 허공에 둥둥 뜨는 자기부상이 가능해집니다."
+      },
+      {
+        title: "로켓 중력 탈출 속도",
+        idea: "지구의 강력한 중력을 벗어나기 위해 로켓은 초속 11.2km라는 탈출 속도를 돌파해야 합니다. 작용과 반작용의 법칙으로 분출되는 고온 가스가 로켓을 우주로 밀어 올립니다."
+      }
+    ];
+
+    function applyPreset(index) {
+      const p = presets[index];
+      if (p) {
+        document.querySelector("#title").value = p.title;
+        document.querySelector("#idea").value = p.idea;
+      }
+    }
+
+    const form = document.querySelector("#create-form");
+    const button = document.querySelector("#generate");
+    const status = document.querySelector("#status");
+    const result = document.querySelector("#result");
+    const previewCard = document.querySelector("#initial-preview-card");
+    const progressBox = document.querySelector("#progress-box");
+    const progressBar = document.querySelector("#progress-bar");
+    const stepLog = document.querySelector("#step-log");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const title = document.querySelector("#title").value.trim();
+      const idea = document.querySelector("#idea").value.trim();
+      const apiToken = document.querySelector("#api-token").value.trim();
+      if (!title || !idea) return;
+
+      button.disabled = true;
+      button.innerText = "⏳ 영상 제작 중...";
+      progressBox.style.display = "block";
+      progressBar.classList.add("indeterminate");
+      stepLog.innerText = "생성 요청을 처리 중입니다. 온라인 음성 및 렌더링 서비스 응답에 따라 시간이 달라질 수 있습니다...";
+
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiToken) headers.Authorization = `Bearer ${apiToken}`;
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ title, idea, script: idea })
+        });
+
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          throw new Error("서버가 읽을 수 있는 결과를 반환하지 않았습니다.");
+        }
+
+        if (!response.ok || !data.success) {
+          const errorMessage = typeof data.error === "string"
+            ? data.error
+            : "영상 생성 요청이 완료되지 않았습니다.";
+          throw new Error(errorMessage);
+        }
+
+        progressBar.classList.remove("indeterminate");
+        progressBar.style.width = "100%";
+        const hasPipelineFallback = data.status === "completed_with_fallback";
+        const hasAudioFallback = data.audio_used_fallback === true ||
+          (data.audio_used_fallback === undefined && data.used_fallback === true);
+        stepLog.innerText = hasPipelineFallback
+          ? "영상 생성 완료. 일부 단계에서 폴백을 사용했습니다. 음성 결과를 아래에서 확인하세요."
+          : "완료! 숏폼 영상이 준비되었습니다.";
+
+        // Display results
+        document.querySelector("#result-title").innerText = data.title;
+        const audioStatus = document.querySelector("#audio-status");
+        const provider = data.audio_provider || data.provider || data.tts_provider;
+        const usedFallback = hasAudioFallback;
+        const providerLabels = {
+          gtts: "gTTS 온라인 음성",
+          elevenlabs: "ElevenLabs",
+          google: "Google Cloud TTS",
+          "edge-tts": "Microsoft Edge TTS",
+          "synthetic-fallback": "합성 톤 (음성 내레이션 아님)"
+        };
+        if (provider) {
+          const label = providerLabels[provider] || String(provider).slice(0, 60);
+          if (provider === "synthetic-fallback") {
+            audioStatus.innerText = "실제 음성 내레이션이 아닌 합성 톤 폴백이 사용되었습니다.";
+          } else {
+            audioStatus.innerText = usedFallback
+              ? `폴백 음성 사용: ${label}. 원래 음성 제공자를 사용할 수 없어 대체 결과가 생성되었습니다.`
+              : `음성 생성 완료: ${label}.`;
+          }
+          const errorCode = data.audio_error || data.provider_error;
+          if (typeof errorCode === "string" && /^[a-z0-9-]{1,48}$/i.test(errorCode)) {
+            audioStatus.innerText += ` 안내 코드: ${errorCode}`;
+          }
+        } else {
+          audioStatus.innerText = "음성 생성은 완료됐지만 서버가 제공자/폴백 정보를 반환하지 않았습니다.";
+        }
+        const storageStatus = document.querySelector("#storage-status");
+        if (data.storage_fallback_used === true) {
+          storageStatus.innerText = "원격 저장소에 저장하지 못해 이 서버의 로컬 파일로 제공 중입니다.";
+        } else if (data.storage_status === "uploaded") {
+          storageStatus.innerText = `영상이 ${data.storage_type || "원격"} 저장소에 업로드되었습니다.`;
+        } else {
+          storageStatus.innerText = "영상이 이 서버의 로컬 저장소에 저장되었습니다.";
+        }
+        const aiSourceLabels = {
+          ollama: "실제 Ollama",
+          openai: "실제 OpenAI",
+          fallback: "대체 텍스트 생성 (외부 AI 응답 아님)"
+        };
+        const imageSourceLabels = {
+          external: "외부 이미지 생성",
+          "local-renderer": "로컬 절차형 공학 도식 (외부 AI 이미지 아님)",
+          mixed: "외부 이미지와 로컬 절차형 도식 혼합",
+          fallback: "이미지 폴백 (외부 이미지 생성 아님)"
+        };
+        const pipelineParts = [];
+        if (typeof data.ai_source === "string") {
+          pipelineParts.push(aiSourceLabels[data.ai_source] || "AI 출처: 확인되지 않음");
+        }
+        if (typeof data.image_source === "string") {
+          pipelineParts.push(imageSourceLabels[data.image_source] || "이미지 출처: 확인되지 않음");
+        }
+        document.querySelector("#pipeline-status").innerText = pipelineParts.length
+          ? pipelineParts.join(" · ")
+          : "서버가 AI/이미지 생성 출처를 반환하지 않았습니다.";
+        const aiError = data.ai_error;
+        if (typeof aiError === "string" && /^[a-z0-9-]{1,48}$/i.test(aiError)) {
+          document.querySelector("#pipeline-status").innerText += ` · 텍스트 AI 안내 코드: ${aiError}`;
+        }
+        const imageError = data.image_error;
+        if (typeof imageError === "string" && /^[a-z0-9-]{1,48}$/i.test(imageError)) {
+          document.querySelector("#pipeline-status").innerText += ` · 이미지 안내 코드: ${imageError}`;
+        }
+        const visualLabels = {
+          "scene-artwork-with-parallax": "장면 이미지에 미세한 패럴랙스/줌 효과를 적용했습니다 (2.5D 연출, 실제 3D 모델 아님).",
+          "motion-graphics": "애니메이션 모션 그래픽을 사용했습니다. 사용 가능한 장면 이미지가 없어 2.5D 패럴랙스는 적용되지 않았습니다."
+        };
+        document.querySelector("#visual-status").innerText =
+          visualLabels[data.visual_source] || "영상의 시각 효과 정보를 확인할 수 없습니다.";
+        const subtitleStatus = document.querySelector("#subtitle-status");
+        subtitleStatus.innerText = data.subtitles_burned_in
+          ? (data.subtitle_timing === "audio-segment-boundaries"
+            ? "자막이 영상에 포함되어 있습니다. TTS 문장별 오디오 구간 길이로 맞췄으며 단어 단위 음성인식 정렬은 아닙니다."
+            : "자막이 영상에 포함되어 있습니다. SRT 타이밍은 대본 길이 기반 추정치입니다.")
+          : "영상에 포함된 자막 정보가 없습니다.";
+        if (data.subtitles_url) {
+          document.querySelector("#subtitle-download").href = data.subtitles_url;
+        }
+        if (data.caption_url) {
+          document.querySelector("#caption-download").href = data.caption_url;
+        }
+        const video = document.querySelector("#video");
+        video.src = data.video_url;
+        video.load();
+
+        document.querySelector("#download").href = data.video_url;
+        document.querySelector("#caption-output").value = data.caption || `${data.title}\n\n${(data.hashtags || []).join(' ')}`;
+        document.querySelector("#script-output").value = data.script;
+
+        if (data.caption_url) document.querySelector("#caption-download").href = data.caption_url;
+        if (data.subtitles_url) document.querySelector("#subtitle-download").href = data.subtitles_url;
+
+        // Render scene list
+        const scenesContainer = document.querySelector("#scenes");
+        scenesContainer.innerHTML = "";
+        if (data.scenes && Array.isArray(data.scenes)) {
+          data.scenes.forEach((sc) => {
+            const el = document.createElement("div");
+            el.className = "scene";
+            el.innerHTML = `
+              <img src="${sc.image_url}" alt="Scene ${sc.number}">
+              <p><b>0${sc.number}</b> ${sc.subtitle || sc.description || ''}</p>
+            `;
+            scenesContainer.appendChild(el);
+          });
+        }
+
+        if (previewCard) previewCard.style.display = "none";
+        result.style.display = "block";
+        result.scrollIntoView({ behavior: 'smooth' });
+
+      } catch (err) {
+        progressBar.classList.remove("indeterminate");
+        progressBar.style.width = "0%";
+        stepLog.innerText = "영상 생성에 실패했습니다.";
+        status.innerText = `${err.message} 네트워크 연결과 서비스 상태를 확인한 뒤 다시 시도하세요.`;
+        status.style.color = "#ff6b6b";
+      } finally {
+        button.disabled = false;
+        button.innerText = "🎬 숏폼 영상 만들기";
+      }
+    });
+
+    // Copy caption
+    document.querySelector("#copy-caption").addEventListener("click", () => {
+      const txt = document.querySelector("#caption-output").value;
+      navigator.clipboard.writeText(txt).then(() => {
+        alert("캡션이 클립보드에 복사되었습니다!");
+      });
+    });
+
+    // Load initial preset
+    applyPreset(0);
+  </script>
+</body>
+</html>

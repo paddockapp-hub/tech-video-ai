@@ -1,42 +1,12 @@
 # GitHub & Vercel 배포 가이드
 
-## 🎯 현재 상태
-- ✅ Git 저장소 초기화 완료
-- ✅ Vercel 설정 파일 존재
-- ⚠️ GitHub 원격 저장소 연결 필요
-- ⚠️ 프로젝트 구조 최적화 필요
-
-## 🚀 GitHub 연동 방법
-
-### 1단계: GitHub 저장소 생성
-1. [GitHub](https://github.com/) 접속
-2. "New repository" 클릭
-3. 저장소 이름: `engineering-shorts-generator`
-4. Public/Private 선택
-5. "Create repository" 클릭
-
-### 2단계: 로컬 Git 저장소 연결
-```bash
-# 이미 수행됨: git init
-
-# 원격 저장소 추가
-git remote add origin https://github.com/YOUR_USERNAME/engineering-shorts-generator.git
-
-# 원격 저장소 확인
-git remote -v
-```
-
-### 3단계: 프로젝트 파일 커밋
-```bash
-# 모든 파일 스테이징
-git add .
-
-# 첫 커밋
-git commit -m "Initial commit: Engineering Shorts Generator with Firebase & GitHub OAuth"
-
-# 푸시
-git push -u origin main
-```
+## 출시 준비 상태
+- ✅ GitHub 저장소 `paddockapp-hub/tech-video-ai`에 연결되어 있습니다.
+- ✅ 저장소에 root Flask entrypoint와 Vercel Python 설정이 있습니다.
+- ✅ Vercel 배포에서 영상, SRT, 캡션 모두 Blob에 저장되도록 fail-closed 설정되어 있습니다.
+- ⚠️ Vercel 프로젝트, Blob 저장소, Google 이미지 생성 자격 증명은 계정 소유자가 연결해야 합니다.
+- ⚠️ 현재 로컬 점검에서 Google 이미지 서비스 인증이 거부됩니다. 이때는 실제 생성 이미지가 아니라 명시적인 로컬 도식 폴백이 사용됩니다.
+- ⚠️ 정식 공개 전 사용자별 인증을 연결해야 합니다. 현재 API 토큰 입력은 제한된 Preview/내부 테스트용입니다. 공유 `AUTH_TOKEN`을 공개 웹사이트에 배포하지 마세요.
 
 ## 🚀 Vercel 배포 방법
 
@@ -51,28 +21,36 @@ git push -u origin main
 #### 2단계: 프로젝트 설정
 ```
 Project Name: engineering-shorts-generator
-Framework Preset: Python
+Framework Preset: Auto-detect (Python/Flask)
 Root Directory: ./
-Build Command: (비워둠)
+Build Command: (비워둠; Python runtime detects app.py)
 Output Directory: (비워둠)
 ```
+`app.py` is the supported Flask entrypoint and exports the initialized WSGI
+application. `.python-version` pins the deployment to Python 3.12. The Flask
+function is allowed up to 300 seconds for Ollama, TTS, and video encoding.
+Do not add a custom Build Command or legacy `builds`/`routes` configuration;
+Vercel detects the Python app and routes requests to Flask.
 
 #### 3단계: 환경 변수 설정
 Vercel Dashboard → Settings → Environment Variables:
 
 ```env
-USE_LOCAL_AI=true
-OLLAMA_MODEL=llama3.2:latest
 OLLAMA_BASE_URL_14=https://<assigned-host>.trycloudflare.com
 OLLAMA_MODEL_13=llama3.2:latest
 AUTH_TOKEN=<same strong token used by the authenticated local tunnel gateway>
-TTS_PROVIDER=elevenlabs
-TTS_API_KEY=<ElevenLabs API key>
-TTS_VOICE=<ElevenLabs voice ID>
-STORAGE_TYPE=local
-FIREBASE_ENABLED=false
-GITHUB_ENABLED=false
+TTS_PROVIDER=gtts
+TTS_LANGUAGE=ko-KR
+GOOGLE_IMAGE_MODEL=gemini-nano-banana-2.1
+BLOB_READ_WRITE_TOKEN=<Vercel Blob read-write token>
 ```
+
+The Vercel runtime automatically selects Blob storage and requires persistent
+artifact storage. These defaults are enforced by the app when Vercel sets
+`VERCEL=1`; no deprecated `env` values in `vercel.json` are needed. Set
+`BLOB_READ_WRITE_TOKEN` in the Vercel project before generating videos.
+Temporary renders are written under `/tmp`; generated artifacts are uploaded
+to Blob before the API reports success because serverless files are ephemeral.
 
 `localhost` in a Vercel environment refers to the Vercel runtime itself, not
 the developer's computer. For remote Ollama, run the authenticated local
@@ -80,17 +58,64 @@ gateway described in [OLLAMA_EXTERNAL_SETUP.md](OLLAMA_EXTERNAL_SETUP.md) and
 set its current Quick Tunnel URL as `OLLAMA_BASE_URL_14`. The tunnel host
 and Vercel Preview must share the same `AUTH_TOKEN`. Redeploy Preview after
 updating the URL or token. Quick Tunnel URLs change when restarted.
-Set `TTS_API_KEY` and `TTS_VOICE` as encrypted Vercel Preview environment
-variables; never put the key in Git or application logs.
+The default, no-key speech engine is `TTS_PROVIDER=gtts` with
+`TTS_LANGUAGE=ko-KR`. It generates real speech through the online gTTS service
+and requires network access. If that provider is unavailable, the final
+fallback is a synthetic tone, explicitly marked as `synthetic-fallback` rather
+than spoken narration. To use ElevenLabs instead, set both `TTS_API_KEY` and
+`TTS_VOICE` as encrypted Vercel Preview environment variables and choose
+`TTS_PROVIDER=elevenlabs`; gTTS remains the real-speech fallback if ElevenLabs
+fails. Do not put the key in Git or application logs.
+
+Gemini image generation uses `GOOGLE_API_KEY` and the configured
+`GOOGLE_IMAGE_MODEL` through the Gemini image-generation API. If the key is
+missing, invalid, or the model is unavailable, the app renders a local
+engineering diagram and reports `image_source=local-renderer`; it does not
+represent that diagram as an external AI-generated image.
 
 After setting the same Preview values in a secure local environment, run
 `python -m scripts.verify_remote_services`. It prints only sanitized service
 statuses, checks that `/api/tags` is HTTP 200 JSON with the configured model,
-and checks that ElevenLabs `/v1/voices` is HTTP 200 JSON containing the
-configured voice. On the Windows Ollama host,
-`.\scripts\start-preview-tunnel.ps1` collects the key through hidden input,
-starts the tunnel, and copies the complete Preview variable block to the
-clipboard. It returns a failure exit code unless both providers pass.
+checks the configured Gemini image model when an API key is present, and
+verifies that the selected ElevenLabs provider has the configured voice or
+that the default gTTS provider can generate real speech. With the default
+`TTS_PROVIDER=gtts`, ElevenLabs credentials are not required. On the Windows Ollama host,
+`.\scripts\start-preview-tunnel.ps1` starts the tunnel and copies the Preview
+variable block to the clipboard. When both ElevenLabs settings already exist
+locally it uses ElevenLabs; otherwise it selects gTTS without prompting for
+missing credentials. It never prints secret values.
+
+Vercel uses Blob storage for the generated MP4, SRT, and caption because local
+function files and in-memory job maps are not durable across serverless requests.
+Create a Blob store in the Vercel project and set its read-write token as
+`BLOB_READ_WRITE_TOKEN`. `REQUIRE_PERSISTENT_STORAGE=true` makes generation fail
+with a sanitized service-unavailable response instead of claiming success when
+any artifact could not be persisted. Successful generation returns the durable
+Blob URLs directly.
+
+### Stable VPS tunnel with Cloudflare Access
+
+For Production, use a named Cloudflare Tunnel and an Access Service Auth policy
+instead of a temporary Quick Tunnel. The VPS should bind Ollama to
+`127.0.0.1:11434`, keep port 11434 closed to external traffic, and run both
+Ollama and `cloudflared` under restart-enabled systemd services. Follow
+[`CLOUDFLARE_VPS_SETUP.md`](CLOUDFLARE_VPS_SETUP.md) for deployable templates
+and setup steps.
+
+Set these Vercel variables for **Production**, using the real fixed hostname
+and Cloudflare-issued Service Token values:
+
+```env
+OLLAMA_BASE_URL=https://ollama.<YOUR_DOMAIN>
+OLLAMA_MODEL=llama3.2:latest
+CF_ACCESS_CLIENT_ID=<Cloudflare Access service token client ID>
+CF_ACCESS_CLIENT_SECRET=<Cloudflare Access service token client secret>
+```
+
+The application sends the Access headers only over HTTPS to the exact hostname
+configured in `OLLAMA_BASE_URL`. Keep both token variables encrypted and never
+paste their values into source control, chat, or logs. Redeploy Production
+after updating them.
 
 #### 4단계: 배포
 - "Deploy" 버튼 클릭

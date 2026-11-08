@@ -1,0 +1,16 @@
+[Unit]
+Description=Cloudflare Tunnel for the Ollama API
+Wants=network-online.target
+After=network-online.target ollama.service
+Requires=ollama.service
+
+[Service]
+Type=simple
+User=cloudflared
+Group=cloudflared
+ExecStart=/usr/bin/cloudflared tunnel --config /etc/cloudflared/config.yml --no-autoupdate run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

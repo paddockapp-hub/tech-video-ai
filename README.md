@@ -1,15 +1,15 @@
 # Engineering Shorts Generator
 
-공학 쇼츠 자동 생성 시스템 - 로컬 GPT + 이미지 생성 + 인증/스토리지
+공학 쇼츠 자동 생성 시스템 - Ollama 장면 분석, 음성, 자막 및 세로형 MP4
 
 ## 🚀 시스템 개요
 
 이 시스템은 공학 원리를 설명하는 짧은 영상(쇼츠)을 자동으로 생성합니다:
 
 1. **스크립트 분석**: 마크다운 스크립트 분석 및 키프레임 계산
-2. **로컬 GPT (Ollama)**: 실제 공학 시각화 프롬프트 생성
-3. **이미지 생성**: Google Flow API로 공학 시각화 이미지 생성
-4. **비디오 편집**: 키프레임 기반 비디오 생성 (옵션)
+2. **장면 분석**: 연결된 Ollama에서 장면별 구조화 프롬프트 생성
+3. **이미지**: 설정된 Gemini 이미지 서비스 사용; 인증/가용성 문제 시 출처를 표시한 주제별 로컬 도식 사용
+4. **비디오 편집**: 세로형 MP4, 장면별 2.5D 패럴랙스/줌, 번인 자막, TTS 오디오를 합성
 5. **인증 시스템**: Firebase, GitHub OAuth 지원
 6. **스토리지**: Firebase Storage, AWS S3, 로컬 스토리지 지원
 7. **웹 서버**: REST API 서버 제공
@@ -17,8 +17,9 @@
 ## 📋 요구사항
 
 - Python 3.12+
-- Ollama (로컬 GPT)
-- Google Cloud API Key (이미지 생성)
+- Ollama endpoint and installed model (optional; scene-specific local fallback remains available)
+- Google image API credentials (optional; local diagram fallback is explicitly labeled)
+- FFmpeg (bundled with `imageio-ffmpeg` where available)
 
 ## 🛠️ 설치
 
@@ -55,24 +56,34 @@ FPS=30
 IMAGE_WIDTH=1080
 IMAGE_HEIGHT=1920
 
-# ElevenLabs TTS (optional; the key is read from the environment, never hard-coded)
-TTS_PROVIDER=elevenlabs
-TTS_API_KEY=your_elevenlabs_api_key
-TTS_VOICE=your_elevenlabs_voice_id
+# gTTS is the default no-key online Korean speech provider.
+TTS_PROVIDER=gtts
 TTS_LANGUAGE=ko-KR
+
+# Optional: enable ElevenLabs only when you have a valid key and voice ID.
+# TTS_PROVIDER=elevenlabs
+# TTS_API_KEY=your_elevenlabs_api_key
+# TTS_VOICE=your_elevenlabs_voice_id
 ```
 
 For remote Preview access to a local Ollama instance, use the authenticated
-[Cloudflare tunnel setup](OLLAMA_EXTERNAL_SETUP.md); do not expose port 11434
+[Cloudflare tunnel setup](OLLAMA_EXTERNAL_SETUP.md). For stable VPS hosting
+with Cloudflare Access, see
+[CLOUDFLARE_VPS_SETUP.md](CLOUDFLARE_VPS_SETUP.md). Do not expose port 11434
 directly.
 On Windows, the one-command setup is `.\scripts\start-preview-tunnel.ps1`.
 It copies the Preview variables to the clipboard when the tunnel is ready;
 after redeploying Preview, verify with `python -m scripts.verify_remote_services`.
+Vercel deployments require a Blob store and `BLOB_READ_WRITE_TOKEN`; the
+deployment is configured to return a service-unavailable error rather than
+claiming a video is ready when the MP4, subtitles, or caption cannot be
+persisted. See [GITHUB_VERCEL_DEPLOYMENT.md](GITHUB_VERCEL_DEPLOYMENT.md).
 
 If ElevenLabs rejects a request or is unavailable, the generator may use gTTS
-as an explicitly marked fallback. Its result includes the provider and a
-non-sensitive `provider_error` code; credentials and provider response bodies
-are not included.
+as an explicitly marked fallback. If gTTS is also unavailable, it may create a
+synthetic tone so the pipeline can continue; that output is marked
+`synthetic-fallback` and is not spoken narration. Results include the provider
+and a non-sensitive error code, never credentials or provider response bodies.
 
 ## 🎯 사용법
 
@@ -104,6 +115,9 @@ python src/integrated_main.py --mode video --script example_script.md
 ```bash
 python src/integrated_main.py --mode server --host 0.0.0.0 --port 8000
 ```
+서버가 시작되면 브라우저에서 `http://localhost:8000/`을 열고 `AUTH_TOKEN`을 입력해
+영상 생성을 요청할 수 있습니다. 서버 프로세스 자체는 인터넷이 필요한 Ollama 터널,
+gTTS 및 설정된 저장소에 접근할 수 있어야 합니다.
 
 ### 인증된 비디오 생성
 ```python
@@ -135,6 +149,8 @@ engineering-shorts-generator/
 │   └── web_server.py           # 웹 서버 (Flask API)
 ├── example_script.md           # 예제 스크립트
 ├── requirements.txt            # Python 의존성
+├── app.py                      # Vercel Flask entrypoint
+├── .python-version             # Vercel Python runtime version
 ├── .env                        # 환경 설정
 ├── .env.example                # 환경 설정 예제
 ├── vercel.json                 # Vercel 배포 설정
@@ -191,7 +207,7 @@ engineering-shorts-generator/
 - **AI**: Ollama (Llama3.2) + GPT
 - **이미지**: Google Flow/Imagen fallback (외부 이미지 provider 미연동)
 - **비디오**: MoviePy
-- **TTS**: ElevenLabs, Google Cloud TTS, gTTS fallback
+- **TTS**: gTTS as the no-key online default; ElevenLabs and Google Cloud TTS are optional
 - **인증**: Firebase Authentication, GitHub OAuth
 - **스토리지**: Vercel Blob, Firebase Storage, AWS S3, 로컬 스토리지
 - **웹 서버**: Flask
@@ -205,18 +221,41 @@ engineering-shorts-generator/
 | USE_LOCAL_AI | 로컬 AI 사용 여부 | true |
 | OLLAMA_HOST | Ollama 서버 주소 | http://localhost:11434 |
 | OLLAMA_MODEL | Ollama 모델 | llama3.2:latest |
-| TTS_PROVIDER | 음성 생성 provider | 설정값 또는 자동 선택 |
-| TTS_LANGUAGE | 음성 언어 코드 | ko |
-| TTS_VOICE | ElevenLabs 음성 ID | - |
-| GOOGLE_API_KEY | Google API 키 | - |
+| TTS_PROVIDER | 음성 엔진 (`gtts`, `elevenlabs`, `google`, `edge-tts`) | `gtts` |
+| TTS_LANGUAGE | 음성 언어 코드; 온라인 TTS에 네트워크 필요 | `ko-KR` |
+| TTS_VOICE | ElevenLabs 음성 ID (선택) | 엔진 기본 음성 |
+| GOOGLE_API_KEY | Gemini 이미지 생성 API 키 | - |
+| GOOGLE_IMAGE_MODEL | Gemini 네이티브 이미지 생성 모델 | `gemini-nano-banana-2.1` |
 | BLOB_READ_WRITE_TOKEN | Vercel Blob 업로드 토큰 | - |
 | AUTH_TOKEN | Ollama 웹 API용 Bearer 토큰 | - |
 | VIDEO_DURATION | 비디오 길이 (초) | 30 |
 | FPS | 프레임 레이트 | 30 |
 
-`/ollama/*` 웹 API에는 `AUTH_TOKEN` 또는 검증된 Firebase ID token이 필요합니다. 생성 결과는 실제 provider 응답과 fallback을 구분합니다. 현재 Google Flow/Imagen 연결은
-미구현 상태이므로 이미지 fallback은 실제 생성 이미지로 표시되지 않습니다. MP4 생성은
-MoviePy 인코딩이 끝나고 결과 파일에서 비디오 프레임을 확인한 경우에만 완료로 처리합니다.
+gTTS는 별도 API 키 없이 인터넷 연결로 음성을 생성합니다. 인터넷 연결이나
+TTS 공급자가 실패하면 합성 톤 폴백이 사용될 수 있으며, 이 출력은 실제 음성
+내레이션이 아닙니다. 결과에서 `audio_provider`, `used_fallback`, `provider_error`
+값을 확인하세요. ElevenLabs는 유효한 키와 voice ID가 준비된 경우에만 선택하세요.
+gTTS는 온라인 서비스이므로 오프라인 음성 합성을 보장하지 않습니다.
+
+웹 스튜디오 영상에는 실제 3D 모델 렌더링이 아니라 장면 이미지와 그래픽 레이어를
+분리해 움직이는 2.5D 패럴랙스/줌 연출이 적용됩니다. 음성 자막은 MP4에 포함되고
+별도 SRT도 제공됩니다. Edge TTS 문장 타이밍을 받을 수 있으면 이를 사용하고,
+기본 gTTS는 문장별 오디오 길이를 재어 문장 경계를 맞춥니다. 문장 내부의 단어 단위
+음성 인식 정렬은 아니며, 음성 제공자 제약이나 폴백 시 대본 길이 기반 추정으로
+전환될 수 있습니다. 실제 3D 에셋/모델 렌더를 보장하지 않습니다.
+
+`/ollama/*` 웹 API에는 `AUTH_TOKEN` 또는 검증된 Firebase ID token이 필요합니다.
+Gemini 네이티브 이미지 생성이 설정되지 않았거나 실패하면 영상은 로컬에서 렌더링한
+공학 도식을 사용하며, 이 이미지는 외부 AI 이미지가 아닙니다. 실제 공급자 응답과
+`local-renderer` 출처는 결과에 구분 표시됩니다. MP4 생성은 인코딩 후 결과 파일의
+비디오 프레임과 오디오 스트림을 검증한 경우에만 성공 처리합니다.
+
+웹 스튜디오는 Flask 서버의 `/`에서 제공되며, `/api/generate`는 `AUTH_TOKEN` 또는
+검증된 Firebase ID token을 Bearer 토큰으로 요구합니다. 토큰은 폼에 입력해 요청할
+수 있으며 브라우저 저장소에는 저장되지 않습니다. 생성한 MP4는 설정된 원격 저장소로
+업로드하고, 업로드 실패 시 결과에 표시한 뒤 로컬 파일로 제공합니다. 로컬 MP4 URL은
+임의 식별자를 사용하며 서버 프로세스가 유지되는 동안 재생/다운로드할 수 있습니다.
+이 로컬 파일 제공 방식은 서버리스/다중 인스턴스 배포용 영구 저장소를 대체하지 않습니다.
 
 ## 🐛 문제 해결
 
@@ -230,9 +269,9 @@ ollama serve
 ```
 
 ### 이미지 생성 실패
-- Google API 키 확인
-- 할당량 확인
-- 네트워크 연결 확인
+- `GOOGLE_API_KEY`가 유효하고 Gemini API 이미지 생성에 접근 가능한지 확인
+- `GOOGLE_IMAGE_MODEL`의 이용 가능 여부와 할당량 확인
+- API 키/모델을 사용할 수 없으면 로컬 절차형 공학 도식이 대신 표시됩니다.
 
 ### 인증/스토리지 문제
 인증 및 스토리지 관련 문제는 `INSTALL_AUTH.md` 파일을 참조하세요.

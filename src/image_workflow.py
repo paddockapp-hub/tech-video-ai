@@ -14,6 +14,7 @@ from script_analyzer import ScriptAnalyzer
 from gpt_service import GPTService
 from google_flow_service import GoogleFlowService
 from keyframe_manager import KeyframeManager
+from scene_prompts import build_fallback_prompts
 
 
 class ImageWorkflow:
@@ -146,9 +147,14 @@ class ImageWorkflow:
         print("=== 이미지 생성 워크플로우 완료 ===")
         
         ai_source = getattr(self.gpt_service, 'last_analysis_source', 'unknown')
+        sources = {item.get('source') for item in generated_images}
         image_source = (
             'external'
-            if all(item.get('source') == 'external' for item in generated_images)
+            if sources == {'external'}
+            else 'local-renderer'
+            if sources == {'local-renderer'}
+            else 'mixed'
+            if 'external' in sources and 'local-renderer' in sources
             else 'fallback'
         )
         fully_external = image_source == 'external' and ai_source in ('ollama', 'openai')
@@ -156,7 +162,9 @@ class ImageWorkflow:
             'success': True,
             'status': 'completed' if fully_external else 'completed_with_fallback',
             'ai_source': ai_source,
+            'ai_error': getattr(self.gpt_service, 'last_error', None),
             'image_source': image_source,
+            'image_error': getattr(self.google_flow_service, 'last_error', None),
             'script_analysis': script_analysis,
             'keyframe_calculation': keyframe_calculation,
             'image_prompts': image_prompts,
@@ -339,16 +347,4 @@ class ImageWorkflow:
     
     def _generate_fallback_prompts(self, script_text: str, num_keyframes: int) -> List[Dict]:
         """대체 프롬프트 생성"""
-        fallback_prompts = []
-        
-        for i in range(num_keyframes):
-            fallback_prompts.append({
-                "scene_number": i + 1,
-                "description": f"Scene {i+1} for engineering visualization",
-                "base_prompt": f"Engineering visualization scene {i+1}, clean background, professional style",
-                "infographic_prompt": f"Engineering visualization scene {i+1} with detailed infographics and diagrams",
-                "visual_elements": ["engineering elements", "technical diagrams"],
-                "engineering_concept": "Engineering concept visualization"
-            })
-        
-        return fallback_prompts
+        return build_fallback_prompts(script_text, num_keyframes)

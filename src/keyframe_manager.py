@@ -24,12 +24,15 @@ class KeyframeManager:
         
         # 기본 설정
         scene_change_interval = 3  # 3초마다 장면 전환
-        min_keyframes = 2
         max_keyframes = 15
         
         # 키프레임 개수 계산
-        num_keyframes = max(min_keyframes, duration // scene_change_interval)
-        num_keyframes = min(num_keyframes, max_keyframes)
+        word_count = len(script_text.split())
+        num_keyframes = min(
+            max(1, duration // scene_change_interval),
+            max_keyframes,
+            max(1, word_count),
+        )
         
         # 장면 세그먼트 분할
         scene_segments = self._divide_script_into_scenes(script_text, num_keyframes)
@@ -69,16 +72,17 @@ class KeyframeManager:
         # 문장 단위로 분할
         sentences = self._split_into_sentences(script_text)
         
-        # 장면별 문장 배분
+        if not script_text.strip() or num_scenes <= 0:
+            return []
+
+        # Keep whole sentences when there are enough; otherwise balance words so
+        # short scripts do not create blank scenes or blank subtitles.
+        units = sentences if len(sentences) >= num_scenes else script_text.split()
         scenes = []
-        sentences_per_scene = max(1, len(sentences) // num_scenes)
-        
-        for i in range(num_scenes):
-            start_idx = i * sentences_per_scene
-            end_idx = start_idx + sentences_per_scene if i < num_scenes - 1 else len(sentences)
-            scene_text = ' '.join(sentences[start_idx:end_idx])
-            scenes.append(scene_text)
-        
+        for index in range(num_scenes):
+            start = index * len(units) // num_scenes
+            end = (index + 1) * len(units) // num_scenes
+            scenes.append(' '.join(units[start:end]))
         return scenes
     
     def _split_into_sentences(self, text: str) -> List[str]:

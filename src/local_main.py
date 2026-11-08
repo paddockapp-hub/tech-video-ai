@@ -38,7 +38,7 @@ except ImportError:
 
 
 class EngineeringShortsGenerator:
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: str = None, config_override: Dict = None):
         """설정 로드 및 초기화"""
         
         # 환경 변수 로드
@@ -46,6 +46,10 @@ class EngineeringShortsGenerator:
         
         # 설정 로드
         self.config = self._load_config(config_path)
+        if config_override is not None:
+            if not isinstance(config_override, dict):
+                raise TypeError('config_override must be a dictionary.')
+            self.config.update(config_override)
         
         # 서비스 초기화
         self.script_analyzer = ScriptAnalyzer(self.config)
@@ -176,7 +180,9 @@ class EngineeringShortsGenerator:
             print("2단계: TTS 생성 중...")
             script_analysis = image_result['script_analysis']
             try:
-                audio_file = self.tts_service.generate_speech_from_script(script_analysis['script_text'])
+                audio_file, speech_sentences = self.tts_service.generate_speech_with_timing(
+                    script_analysis['script_text']
+                )
             except Exception as e:
                 return {
                     'success': False,
@@ -191,7 +197,8 @@ class EngineeringShortsGenerator:
             try:
                 video_file = self.video_editor.create_motion_graphics_video(
                     keyframes, 
-                    audio_file
+                    audio_file,
+                    sentences=speech_sentences,
                 )
             except Exception as e:
                 return {
@@ -214,7 +221,16 @@ class EngineeringShortsGenerator:
                 ) else 'completed',
                 'audio_provider': self.tts_service.last_provider,
                 'audio_providers': self.tts_service.providers_used,
+                'audio_used_fallback': self.tts_service.used_fallback,
                 'audio_error': self.tts_service.last_error,
+                'visual_source': self.video_editor.last_visual_source,
+                'subtitles': self.video_editor.last_subtitle_cues,
+                'subtitles_burned_in': bool(self.video_editor.last_subtitle_cues),
+                'subtitle_timing': (
+                    'audio-segment-boundaries'
+                    if speech_sentences
+                    else 'estimated-from-script-length'
+                ),
                 'image_result': image_result
             }
             

@@ -8,6 +8,11 @@ from typing import Dict, List, Any
 from openai import OpenAI
 import json
 
+try:
+    from .scene_prompts import build_fallback_prompts
+except ImportError:
+    from scene_prompts import build_fallback_prompts
+
 
 class GPTService:
     def __init__(self, config: Dict):
@@ -74,20 +79,7 @@ class GPTService:
     
     def _generate_fallback_prompts(self, script_text: str, num_keyframes: int) -> List[Dict]:
         """GPT API 실패 시 대체 프롬프트 생성"""
-        fallback_prompts = []
-        
-        for i in range(num_keyframes):
-            fallback_prompts.append({
-                "scene_number": i + 1,
-                "description": f"Scene {i+1} for engineering visualization",
-                "base_prompt": f"Engineering visualization scene {i+1}, clean background, professional style",
-                "infographic_prompt": f"Engineering visualization scene {i+1} with detailed infographics and diagrams",
-                "visual_elements": ["engineering elements", "technical diagrams"],
-                "engineering_concept": "Engineering concept visualization",
-                "source": "fallback"
-            })
-        
-        return fallback_prompts
+        return build_fallback_prompts(script_text, num_keyframes)
     
     def organize_clip_sequence(self, clips_info: List[Dict]) -> List[Dict]:
         """생성된 클립의 순서를 정리"""

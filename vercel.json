@@ -1,37 +1,10 @@
 {
-  "version": 2,
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "name": "engineering-shorts-generator",
-  "builds": [
-    {
-      "src": "src/web_server.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "src/web_server.py"
-    },
-    {
-      "src": "/ollama/(.*)",
-      "dest": "src/web_server.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "src/web_server.py"
-    }
-  ],
-  "env": {
-    "USE_LOCAL_AI": "true",
-    "OLLAMA_MODEL": "llama3.2:latest",
-    "STORAGE_TYPE": "local",
-    "FIREBASE_ENABLED": "false",
-    "GITHUB_ENABLED": "false"
-  },
   "functions": {
-    "api/*": {
-      "memory": 1024,
-      "maxDuration": 60
+    "app.py": {
+      "maxDuration": 300,
+      "includeFiles": "{src,public}/**"
     }
   }
 }

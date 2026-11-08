@@ -1,4 +1,5 @@
 import os
+import json
 import unittest
 from unittest.mock import patch
 
@@ -39,6 +40,39 @@ class FakeSession:
 class OllamaServiceTests(unittest.TestCase):
     def tags_response(self, name='llama3.2'):
         return FakeResponse(payload={'models': [{'name': name}]})
+
+    def test_storyboard_generation_requests_concise_json_with_enough_output_tokens(self):
+        service = OllamaService(host='', model='')
+        service.last_generation_source = 'ollama'
+        response = json.dumps({
+            'keyframes': [{
+                'scene_number': 1,
+                'description': 'A bridge deck takes a vehicle load.',
+                'base_prompt': 'Bridge deck under a vehicle load.',
+                'infographic_prompt': 'Bridge deck load arrows to the piers.',
+            }],
+        })
+        with patch.object(service, 'generate_text', return_value=response) as generate:
+            prompts = service.analyze_script_for_images('Bridge deck carries traffic loads.', 1)
+
+        self.assertEqual(len(prompts), 1)
+        self.assertEqual(service.last_analysis_source, 'ollama')
+        self.assertIsNone(service.last_error)
+        self.assertEqual(generate.call_args.kwargs['options']['temperature'], 0.25)
+        self.assertGreaterEqual(generate.call_args.kwargs['options']['num_predict'], 1024)
+        schema = generate.call_args.kwargs['output_format']
+        self.assertEqual(schema['properties']['keyframes']['minItems'], 1)
+        self.assertEqual(schema['properties']['keyframes']['maxItems'], 1)
+
+    def test_invalid_storyboard_schema_is_reported_as_content_fallback(self):
+        service = OllamaService(host='', model='')
+        service.last_generation_source = 'ollama'
+        with patch.object(service, 'generate_text', return_value='{"keyframes":[]}'):
+            prompts = service.analyze_script_for_images('A bridge carries traffic.', 1)
+
+        self.assertEqual(service.last_analysis_source, 'fallback')
+        self.assertEqual(service.last_error, 'ollama-invalid-storyboard')
+        self.assertIn('bridge', prompts[0]['description'].lower())
 
     def test_default_model_matches_ollama_latest_tag(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -203,6 +237,76 @@ class OllamaServiceTests(unittest.TestCase):
             service = OllamaService(host='', model='', session=RefusedSession())
             self.assertFalse(service.check_connection())
             self.assertEqual(service.status, 'ollama-unreachable')
+
+    def test_cloudflare_access_service_tokens_are_scoped_to_configured_https_host(self):
+        environment = {
+            "OLLAMA_BASE_URL": "https://ollama.example.com/",
+            "CF_ACCESS_CLIENT_ID": "service-client-id",
+            "CF_ACCESS_CLIENT_SECRET": "service-client-secret",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            headers = OllamaService._request_headers("https://ollama.example.com")
+            self.assertEqual(
+                headers,
+                {
+                    "CF-Access-Client-Id": "service-client-id",
+                    "CF-Access-Client-Secret": "service-client-secret",
+                },
+            )
+            self.assertEqual(
+                OllamaService._request_headers("https://other.example.com"),
+                {},
+            )
+            self.assertEqual(
+                OllamaService._request_headers("http://ollama.example.com"),
+                {},
+            )
+            self.assertEqual(
+                OllamaService._request_headers("https://ollama.example.com:8443"),
+                {},
+            )
+
+    def test_cloudflare_access_headers_are_not_sent_with_only_one_token_part(self):
+        with patch.dict(
+            os.environ,
+            {
+                "OLLAMA_BASE_URL": "https://ollama.example.com",
+                "CF_ACCESS_CLIENT_ID": "service-client-id",
+                "CF_ACCESS_CLIENT_SECRET": "",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                OllamaService._request_headers("https://ollama.example.com"),
+                {},
+            )
+
+    def test_cloudflare_access_headers_are_used_for_probe_and_generation(self):
+        environment = {
+            "OLLAMA_BASE_URL": "https://ollama.example.com",
+            "OLLAMA_MODEL": "llama3.2:latest",
+            "CF_ACCESS_CLIENT_ID": "service-client-id",
+            "CF_ACCESS_CLIENT_SECRET": "service-client-secret",
+        }
+        session = FakeSession(
+            get_responses=[
+                FakeResponse(payload={"version": "0.5.0"}),
+                self.tags_response(name="llama3.2:latest"),
+            ],
+            post_response=FakeResponse(payload={"response": '{"status":"ok"}'}),
+        )
+        with patch.dict(os.environ, environment, clear=True):
+            service = OllamaService(host="", model="", session=session)
+            self.assertEqual(service.generate_text("generate"), '{"status":"ok"}')
+
+        expected_headers = {
+            "CF-Access-Client-Id": "service-client-id",
+            "CF-Access-Client-Secret": "service-client-secret",
+        }
+        self.assertEqual(
+            [call[2]["headers"] for call in session.calls],
+            [expected_headers, expected_headers, expected_headers],
+        )
 
     def test_environment_references_are_resolved_recursively_and_cycles_are_rejected(self):
         environment = {

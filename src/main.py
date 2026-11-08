@@ -182,6 +182,12 @@ class EngineeringShortsGenerator:
             if options.get('skip_tts', False):
                 print("   TTS 건너뜀 (옵션 설정)")
                 audio_path = None
+                results['steps']['audio_generation'] = {
+                    'status': 'skipped',
+                    'provider': None,
+                    'providers': [],
+                    'used_fallback': True,
+                }
             else:
                 audio_path = self.tts_service.generate_speech_from_script(
                     script_analysis['script_text'],
@@ -226,7 +232,11 @@ class EngineeringShortsGenerator:
                 'source': 'ffmpeg' if self.video_editor._find_ffmpeg() else 'moviepy',
                 'inputs': {
                     'images': image_result.get('image_source'),
-                    'audio_provider': self.tts_service.last_provider if audio_path else None,
+                    'audio_provider': (
+                        self.tts_service.last_provider
+                        if audio_path
+                        else getattr(self.video_editor, 'last_audio_source', 'none')
+                    ),
                 },
             }
             
@@ -267,7 +277,9 @@ class EngineeringShortsGenerator:
             results['success'] = True
             has_fallback = (
                 image_result.get('status') == 'completed_with_fallback'
-                or (audio_path is not None and self.tts_service.used_fallback)
+                or self.tts_service.used_fallback
+                or options.get('skip_tts', False)
+                or getattr(self.video_editor, 'last_audio_source', 'none') == 'synthetic-fallback'
                 or getattr(self.gpt_service, 'last_generation_source', 'unknown') == 'fallback'
             )
             results['status'] = 'completed_with_fallback' if has_fallback else 'completed'

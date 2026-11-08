@@ -1,9 +1,10 @@
-"""Safely verify configured Ollama and ElevenLabs endpoints."""
+"""Safely verify Ollama and the configured TTS provider or speech fallback."""
 
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import requests
 
@@ -35,7 +36,7 @@ def verify_ollama(base_url: Optional[str], model: Optional[str], session=request
         return False
 
     base_url = base_url.rstrip("/")
-    headers = {}
+    headers = OllamaService._request_headers(base_url)
     parsed = urlsplit(base_url)
     if parsed.scheme == "https" and parsed.hostname.lower().endswith(".trycloudflare.com"):
         token = get_env_value("AUTH_TOKEN")
@@ -104,6 +105,99 @@ def verify_elevenlabs(
     return True
 
 
+def verify_gtts() -> bool:
+    """Verify that the default no-key provider returns actual speech."""
+    try:
+        from src.tts_service import TTSService
+    except ImportError:
+        from tts_service import TTSService
+
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            service = TTSService({
+                "output_dir": directory,
+                "temp_dir": directory,
+                "tts_provider": "gtts",
+            })
+            service.generate_speech_from_script(
+                "음성 생성 연결 확인",
+                method="gtts",
+            )
+    except (OSError, RuntimeError):
+        print("TTS=gtts-unavailable")
+        return False
+
+    if service.last_provider == "gtts" and not service.used_fallback:
+        print("TTS=gtts-speech-verified")
+        return True
+
+    print("TTS=gtts-fallback-only")
+    return False
+
+
+def verify_google_image_provider(
+    api_key: Optional[str],
+    model: str,
+    session=requests,
+) -> bool:
+    if not api_key:
+        print("GOOGLE_IMAGE=local-renderer-only")
+        return True
+
+    encoded_model = quote(model, safe=".-_")
+    try:
+        response = session.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{encoded_model}",
+            headers={"x-goog-api-key": api_key, "Accept": "application/json"},
+            timeout=15,
+        )
+    except requests.Timeout:
+        print("GOOGLE_IMAGE=timeout")
+        return False
+    except requests.RequestException:
+        print("GOOGLE_IMAGE=unreachable")
+        return False
+
+    if response.status_code != 200:
+        invalid_key = False
+        if response.status_code == 400:
+            try:
+                error = response.json().get("error", {})
+                invalid_key = (
+                    isinstance(error, dict)
+                    and error.get("status") == "INVALID_ARGUMENT"
+                    and "api key not valid" in str(error.get("message", "")).lower()
+                )
+            except (AttributeError, ValueError):
+                pass
+        if response.status_code in (401, 403) or invalid_key:
+            print("GOOGLE_IMAGE=unauthorized")
+        elif response.status_code == 404:
+            print("GOOGLE_IMAGE=model-not-found")
+        elif response.status_code == 429:
+            print("GOOGLE_IMAGE=rate-limited")
+        else:
+            print("GOOGLE_IMAGE=http-" + str(response.status_code))
+        return False
+
+    try:
+        payload = response.json()
+    except ValueError:
+        print("GOOGLE_IMAGE=invalid-response")
+        return False
+    model_name = payload.get("name") if isinstance(payload, dict) else None
+    supported = payload.get("supportedGenerationMethods", []) if isinstance(payload, dict) else []
+    if (
+        not isinstance(model_name, str)
+        or model_name.split("/")[-1] != model
+        or not isinstance(supported, list)
+    ):
+        print("GOOGLE_IMAGE=invalid-response")
+        return False
+    print("GOOGLE_IMAGE=api-key-and-model-verified")
+    return True
+
+
 def main() -> int:
     if load_dotenv:
         load_dotenv(Path(".env"), override=False)
@@ -115,12 +209,30 @@ def main() -> int:
         ollama_ok = False
     else:
         ollama_ok = verify_ollama(candidate["url"], candidate["model"])
-    elevenlabs_ok = verify_elevenlabs(
-        get_env_value("TTS_API_KEY") or get_env_value("apiKey"),
-        get_env_value("TTS_VOICE"),
+    provider = (get_env_value("TTS_PROVIDER") or "gtts").strip().lower()
+    api_key = get_env_value("TTS_API_KEY") or get_env_value("apiKey")
+    voice_id = get_env_value("TTS_VOICE")
+    if provider in {"elevenlabs", "eleven-labs"} or (
+        provider in {"auto", "default"} and api_key and voice_id
+    ):
+        tts_ok = verify_elevenlabs(api_key, voice_id)
+        if not tts_ok:
+            print("TTS_PRIMARY=unavailable; checking gTTS fallback")
+            tts_ok = verify_gtts()
+    elif provider in {"gtts", "auto", "default"}:
+        tts_ok = verify_gtts()
+    else:
+        print("TTS=unsupported-verifier-provider")
+        tts_ok = False
+
+    image_model = get_env_value("GOOGLE_IMAGE_MODEL", "gemini-nano-banana-2.1")
+    image_ok = verify_google_image_provider(
+        get_env_value("GOOGLE_API_KEY") or get_env_value("GEMINI_API_KEY"),
+        image_model or "gemini-nano-banana-2.1",
     )
-    print("REMOTE_SERVICES=verified" if ollama_ok and elevenlabs_ok else "REMOTE_SERVICES=incomplete")
-    return 0 if ollama_ok and elevenlabs_ok else 1
+    all_services_ok = ollama_ok and tts_ok and image_ok
+    print("REMOTE_SERVICES=verified" if all_services_ok else "REMOTE_SERVICES=incomplete")
+    return 0 if all_services_ok else 1
 
 
 if __name__ == "__main__":

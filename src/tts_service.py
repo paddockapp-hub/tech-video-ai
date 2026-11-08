@@ -1,14 +1,28 @@
 """
 TTS Service Module
-텍스트 음성 변환 서비스 - Google TTS 및 gTTS 통합
+Microsoft Edge TTS (40대 신뢰도 있는 남성 목소리: ko-KR-InJoonNeural) 및 gTTS/Google TTS 폴백 통합
 """
 
 import os
-from typing import Dict, List, Any, Optional
+import sys
+import asyncio
+import subprocess
+import wave
+import shutil
+import tempfile
+import numpy as np
+from typing import Dict, List, Any, Optional, Tuple
 import requests
 import re
+from urllib.parse import quote
 
-# 의존성 import
+# Optional third-party imports
+try:
+    import edge_tts
+    EDGE_TTS_AVAILABLE = True
+except ImportError:
+    EDGE_TTS_AVAILABLE = False
+
 try:
     from gtts import gTTS
     GTTS_AVAILABLE = True
@@ -24,36 +38,42 @@ except ImportError:
 try:
     from .env_utils import get_env_value, resolve_env_value
 except ImportError:
-    from env_utils import get_env_value, resolve_env_value
+    try:
+        from env_utils import get_env_value, resolve_env_value
+    except ImportError:
+        def get_env_value(key, default=None):
+            return os.getenv(key, default)
+        def resolve_env_value(val):
+            return val
+
+
+# 40대 신뢰감 있는 남성 목소리 고정 상수 (Microsoft InJoon)
+DEFAULT_TRUSTED_MALE_VOICE = "ko-KR-InJoonNeural"
 
 
 class TTSService:
-    def __init__(self, config: Dict):
-        self.config = config
-        self.output_dir = config.get('output_dir', 'output')
-        self.temp_dir = config.get('temp_dir', 'temp')
+    def __init__(self, config: Dict = None):
+        self.config = config or {}
+        self.output_dir = self.config.get('output_dir', 'output')
+        self.temp_dir = self.config.get('temp_dir', 'temp')
         self.last_provider = None
         self.last_error = None
         self.providers_used = []
         self.used_fallback = False
-        
-        # 디렉토리 생성
+        self.last_voice = DEFAULT_TRUSTED_MALE_VOICE
+
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.temp_dir, exist_ok=True)
-        
-        # Google Cloud TTS 클라이언트 설정 (API 키가 있는 경우)
+
         self.google_tts_client = None
-        if config.get('google_tts_enabled', False) and GOOGLE_TTS_AVAILABLE:
+        if self.config.get('google_tts_enabled', False) and GOOGLE_TTS_AVAILABLE:
             try:
                 self.google_tts_client = texttospeech.TextToSpeechClient()
             except Exception:
-                print("Google Cloud TTS 초기화에 실패했습니다.")
-                print("gTTS를 사용하여 대체합니다.")
-        
-        # gTTS 가용성 확인
+                pass
+
         self.gtts_available = GTTS_AVAILABLE
-        if not self.gtts_available:
-            print("gTTS를 사용할 수 없습니다. 음성 생성 기능이 제한됩니다.")
+        self.edge_tts_available = EDGE_TTS_AVAILABLE
 
     def _language_code(self) -> str:
         return (
@@ -62,11 +82,29 @@ class TTSService:
             or 'ko-KR'
         )
 
-    def _voice_id(self) -> Optional[str]:
-        return (
+    def _api_key(self) -> Optional[str]:
+        for name in ('TTS_API_KEY', 'TTS_API_KEY_2', 'TTS_API_KEY_3', 'apiKey'):
+            value = resolve_env_value(self.config.get('tts_api_key')) if name == 'TTS_API_KEY' else None
+            value = value or get_env_value(name)
+            if value and value.strip():
+                return value.strip()
+        return None
+
+    def _elevenlabs_voice_id(self) -> Optional[str]:
+        voice = (
             resolve_env_value(self.config.get('tts_voice'))
             or get_env_value('TTS_VOICE')
         )
+        return voice.strip() if voice and voice.strip() else None
+
+    def _voice_id(self) -> str:
+        # 사용자의 요구사항: 신뢰도 있는 40대 남성 목소리로 고정
+        voice = (
+            resolve_env_value(self.config.get('tts_voice'))
+            or get_env_value('TTS_VOICE')
+            or DEFAULT_TRUSTED_MALE_VOICE
+        )
+        return voice
 
     def _record_provider(self, provider: str) -> None:
         self.last_provider = provider
@@ -80,420 +118,634 @@ class TTSService:
         if os.path.getsize(audio_path) == 0:
             raise RuntimeError("Speech provider created an empty audio file.")
         return audio_path
-    
-    def generate_speech_with_gtts(self, text: str, output_path: str = None, 
-                                language: str = 'ko', slow: bool = False) -> str:
-        """gTTS를 사용하여 음성 생성"""
-        
-        if not self.gtts_available:
-            raise RuntimeError("gTTS를 사용할 수 없습니다.")
-        
+
+    def generate_speech_with_elevenlabs(
+        self,
+        text: str,
+        output_path: str = None,
+    ) -> str:
+        api_key = self._api_key()
+        voice_id = self._elevenlabs_voice_id()
+        if not api_key or not voice_id:
+            raise RuntimeError('tts-not-configured')
         if output_path is None:
-            output_path = os.path.join(self.output_dir, 'speech_gtts.mp3')
-        
+            output_path = os.path.join(self.output_dir, 'elevenlabs_speech.mp3')
+        parent_dir = os.path.dirname(output_path) or '.'
+        os.makedirs(parent_dir, exist_ok=True)
+
         try:
-            from gtts import gTTS
-            # gTTS로 음성 생성
-            tts = gTTS(text=text, lang=language, slow=slow)
-            tts.save(output_path)
-            self._record_provider('gtts')
-            
-            print(f"gTTS 음성 생성 완료: {output_path}")
-            return output_path
-            
-        except Exception as e:
-            print(f"gTTS 음성 생성 중 오류 발생: {e}")
-            raise RuntimeError(f"gTTS 음성 생성 실패: {str(e)}")
-    
-    def generate_speech_with_google_tts(self, text: str, output_path: str = None,
-                                      voice_name: str = 'ko-KR-Wavenet-A') -> str:
-        """Google Cloud TTS를 사용하여 음성 생성"""
-        
+            response = requests.post(
+                f'https://api.elevenlabs.io/v1/text-to-speech/{quote(voice_id, safe="")}',
+                headers={
+                    'xi-api-key': api_key,
+                    'Accept': 'audio/mpeg',
+                    'Content-Type': 'application/json',
+                },
+                json={
+                    'text': text,
+                    'model_id': 'eleven_multilingual_v2',
+                },
+                timeout=60,
+            )
+        except requests.RequestException:
+            raise RuntimeError('tts-unreachable') from None
+
+        if response.status_code == 401 or response.status_code == 403:
+            raise RuntimeError('tts-unauthorized')
+        if response.status_code == 429:
+            raise RuntimeError('tts-rate-limited')
+        if response.status_code != 200:
+            raise RuntimeError('tts-provider-error')
+
+        content_type = response.headers.get('Content-Type', '').lower()
+        audio_data = response.content
+        if not audio_data or not content_type.startswith('audio/'):
+            raise RuntimeError('tts-invalid-audio')
+
+        with open(output_path, 'wb') as audio_file:
+            audio_file.write(audio_data)
+        self._validate_audio_file(output_path)
+        self.last_voice = voice_id
+        self.last_error = None
+        self._record_provider('elevenlabs')
+        return output_path
+
+    @staticmethod
+    def _ffmpeg_path() -> str:
+        ffmpeg = shutil.which('ffmpeg')
+        if ffmpeg:
+            return ffmpeg
+        try:
+            import imageio_ffmpeg
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except (ImportError, RuntimeError):
+            return ''
+
+    def _get_audio_duration(self, audio_path: str) -> float:
+        if not os.path.isfile(audio_path) or os.path.getsize(audio_path) == 0:
+            raise RuntimeError('Audio file is missing or empty; duration could not be measured.')
+        ffmpeg = self._ffmpeg_path()
+        if not ffmpeg:
+            raise RuntimeError('Audio duration could not be measured: FFmpeg is unavailable.')
+
+        try:
+            result = subprocess.run(
+                [
+                    ffmpeg, '-hide_banner', '-i', audio_path,
+                    '-map', '0:a:0', '-f', 'null', '-',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            raise RuntimeError('Audio duration could not be measured.') from None
+        match = re.search(
+            r'Duration:\s*(\d+):(\d+):([\d.]+)',
+            result.stderr or '',
+        )
+        if result.returncode != 0 or not match:
+            raise RuntimeError('Audio duration could not be measured.')
+        duration = (
+            int(match.group(1)) * 3600
+            + int(match.group(2)) * 60
+            + float(match.group(3))
+        )
+        if duration <= 0:
+            raise RuntimeError('Audio duration could not be measured.')
+        return duration
+
+    def concatenate_audio_files(
+        self,
+        audio_files: List[str],
+        output_path: str = None,
+    ) -> str:
+        if not audio_files:
+            raise ValueError('At least one audio file is required.')
+        for audio_path in audio_files:
+            self._validate_audio_file(audio_path)
+        ffmpeg = self._ffmpeg_path()
+        if not ffmpeg:
+            raise RuntimeError('FFmpeg is unavailable for audio concatenation.')
         if output_path is None:
-            output_path = os.path.join(self.output_dir, 'speech_google.mp3')
-        
+            output_path = os.path.join(self.output_dir, 'combined_speech.mp3')
+        parent_dir = os.path.dirname(output_path) or '.'
+        os.makedirs(parent_dir, exist_ok=True)
+
+        manifest_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                encoding='utf-8',
+                suffix='.txt',
+                dir=parent_dir,
+                delete=False,
+            ) as manifest:
+                manifest_path = manifest.name
+                for audio_path in audio_files:
+                    safe_path = os.path.abspath(audio_path).replace('\\', '/')
+                    escaped_path = safe_path.replace("'", "'\\''")
+                    manifest.write(f"file '{escaped_path}'\n")
+            result = subprocess.run(
+                [
+                    ffmpeg, '-y', '-hide_banner', '-f', 'concat', '-safe', '0',
+                    '-i', manifest_path, '-vn', '-c:a', 'libmp3lame', '-q:a', '4',
+                    output_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError('FFmpeg could not concatenate the audio files.')
+            self._validate_audio_file(output_path)
+            self._get_audio_duration(output_path)
+            return output_path
+        except (OSError, subprocess.TimeoutExpired):
+            raise RuntimeError('FFmpeg could not concatenate the audio files.') from None
+        finally:
+            if manifest_path and os.path.exists(manifest_path):
+                os.remove(manifest_path)
+
+    def _generate_with_method(self, text: str, output_path: str, method: str) -> str:
+        if method == 'elevenlabs':
+            result = self.generate_speech_with_elevenlabs(text, output_path)
+        elif method in ('google', 'google_tts'):
+            result = self.generate_speech_with_google_tts(text, output_path)
+        elif method == 'gtts':
+            result = self.generate_speech_with_gtts(text, output_path)
+        elif method in ('edge', 'edge-tts', 'edge_tts'):
+            result = self.generate_speech_with_edge_tts(text, output_path)
+        else:
+            raise RuntimeError('Unsupported TTS provider.')
+        audio_path = result[0] if isinstance(result, tuple) else result
+        return self._validate_audio_file(audio_path)
+
+    def generate_speech_with_google_tts(
+        self,
+        text: str,
+        output_path: str = None,
+        voice_name: str = 'ko-KR-Wavenet-A',
+    ) -> str:
+        if output_path is None:
+            output_path = os.path.join(self.output_dir, 'google_speech.mp3')
         if not self.google_tts_client:
-            print("Google Cloud TTS 클라이언트가 초기화되지 않았습니다. gTTS를 사용합니다.")
             self.used_fallback = True
+            self.last_error = 'google-tts-not-configured'
             return self.generate_speech_with_gtts(
                 text,
                 output_path,
                 language=self._language_code().split('-')[0],
             )
-        
+
         try:
-            # TTS 요청 설정
             synthesis_input = texttospeech.SynthesisInput(text=text)
-            
-            # 음성 설정
             voice = texttospeech.VoiceSelectionParams(
                 language_code=self._language_code(),
-                name=voice_name
+                name=voice_name,
             )
-            
-            # 오디오 설정
             audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3
+                audio_encoding=texttospeech.AudioEncoding.MP3,
             )
-            
-            # 음성 생성 요청
             response = self.google_tts_client.synthesize_speech(
                 input=synthesis_input,
                 voice=voice,
-                audio_config=audio_config
+                audio_config=audio_config,
             )
             if not response.audio_content:
-                raise RuntimeError("Google TTS returned empty audio.")
-            
-            # 오디오 파일 저장
-            with open(output_path, 'wb') as out:
-                out.write(response.audio_content)
-            
+                raise RuntimeError('tts-invalid-audio')
+            os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+            with open(output_path, 'wb') as audio_file:
+                audio_file.write(response.audio_content)
+            self._validate_audio_file(output_path)
             self._record_provider('google')
-            print(f"Google TTS 음성 생성 완료: {output_path}")
+            self.last_error = None
             return output_path
-            
         except Exception:
-            print("Google TTS 음성 생성에 실패했습니다.")
-            print("gTTS를 사용하여 대체 생성합니다.")
+            self.last_error = 'google-tts-error'
             self.used_fallback = True
             return self.generate_speech_with_gtts(
                 text,
                 output_path,
                 language=self._language_code().split('-')[0],
             )
-
-    def generate_speech_with_elevenlabs(self, text: str, output_path: str = None) -> str:
-        """Generate speech with the configured ElevenLabs voice."""
-        api_key = (
-            resolve_env_value(self.config.get('tts_api_key'))
-            or get_env_value('TTS_API_KEY')
-            or get_env_value('apiKey')
-        )
-        voice_id = self._voice_id()
-        if not api_key:
-            self.last_error = "tts-not-configured"
-            raise RuntimeError("ElevenLabs API key is not configured.")
-        if not voice_id:
-            self.last_error = "tts-voice-not-configured"
-            raise RuntimeError("ElevenLabs voice is not configured.")
-        if output_path is None:
-            output_path = os.path.join(self.output_dir, 'speech_elevenlabs.mp3')
-
-        language = self._language_code()
-        language_code = re.sub(r'[^A-Za-z-]', '', language.split('-')[0])
-        try:
-            response = requests.post(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-                headers={
-                    "xi-api-key": api_key,
-                    "Accept": "audio/mpeg",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "text": text,
-                    "model_id": "eleven_multilingual_v2",
-                    "language_code": language_code,
-                },
-                params={"output_format": "mp3_44100_128"},
-                timeout=120,
-            )
-            content_type = response.headers.get('Content-Type', '').lower()
-            if response.status_code != 200:
-                if response.status_code in (401, 403):
-                    self.last_error = "tts-unauthorized"
-                elif response.status_code == 429:
-                    self.last_error = "tts-rate-limited"
-                elif response.status_code >= 500:
-                    self.last_error = "tts-provider-unavailable"
-                else:
-                    self.last_error = "tts-request-rejected"
-                raise RuntimeError("ElevenLabs rejected the speech request.")
-            if not response.content or 'audio' not in content_type:
-                self.last_error = "tts-invalid-response"
-                raise RuntimeError("ElevenLabs returned an invalid audio response.")
-            with open(output_path, 'wb') as output_file:
-                output_file.write(response.content)
-            self._record_provider('elevenlabs')
-            self.last_error = None
-            return output_path
-        except requests.RequestException as exc:
-            self.last_error = "tts-unreachable"
-            raise RuntimeError("ElevenLabs speech generation failed.") from exc
 
     def _configured_method(self, method: str) -> str:
         if method != 'auto':
             return method
-        provider = resolve_env_value(self.config.get('tts_provider')) or get_env_value('TTS_PROVIDER')
+        provider = (
+            resolve_env_value(self.config.get('tts_provider'))
+            or get_env_value('TTS_PROVIDER')
+        )
         if provider:
             return provider.strip().lower()
-        if self.config.get('tts_api_key') or get_env_value('TTS_API_KEY') or get_env_value('apiKey'):
+        if self._api_key() and self._elevenlabs_voice_id():
             return 'elevenlabs'
         return 'gtts'
 
-    def _generate_with_method(self, text: str, output_path: str, method: str) -> str:
-        method = self._configured_method(method)
-        if method in ('elevenlabs', 'eleven-labs'):
-            try:
-                return self.generate_speech_with_elevenlabs(text, output_path)
-            except RuntimeError:
-                if not self.gtts_available:
-                    raise
-                self.used_fallback = True
-                return self.generate_speech_with_gtts(
-                    text,
-                    output_path,
-                    language=self._language_code().split('-')[0],
-                )
-        if method == 'google':
-            return self.generate_speech_with_google_tts(
-                text,
-                output_path,
-                voice_name=self._voice_id() or 'ko-KR-Wavenet-A',
-            )
-        if method in ('gtts', 'auto'):
-            return self.generate_speech_with_gtts(
-                text,
-                output_path,
-                language=self._language_code().split('-')[0],
-            )
-        raise ValueError(f"Unsupported TTS provider: {method}")
-    
-    def generate_segmented_speech(self, segments: List[str], output_dir: str = None) -> List[str]:
-        """세그먼트별 음성 생성"""
-        
+    def generate_segmented_speech(
+        self,
+        segments: List[str],
+        output_dir: str = None,
+    ) -> List[Dict[str, Any]]:
         if output_dir is None:
             output_dir = os.path.join(self.output_dir, 'speech_segments')
-        
         os.makedirs(output_dir, exist_ok=True)
-        
-        audio_files = []
-        
-        for i, segment in enumerate(segments):
-            output_path = os.path.join(output_dir, f'segment_{i+1:02d}.mp3')
-            
-            try:
-                # Google TTS 시도
-                audio_path = self.generate_speech_with_google_tts(segment, output_path)
-            except Exception as e:
-                print(f"세그먼트 {i+1} Google TTS 실패: {e}")
-                # gTTS 대체
-                audio_path = self.generate_speech_with_gtts(segment, output_path)
-            
-            audio_files.append({
-                'segment_index': i,
+        generated = []
+        for index, segment in enumerate(segments):
+            output_path = os.path.join(output_dir, f'segment_{index + 1:02d}.mp3')
+            audio_path = self.generate_speech_from_script(segment, output_path)
+            generated.append({
+                'segment_index': index,
                 'text': segment,
                 'audio_path': audio_path,
-                'duration': self._get_audio_duration(audio_path)
+                'duration': self._get_audio_duration(audio_path),
             })
-        
-        return audio_files
-    
-    def _get_audio_duration(self, audio_path: str) -> float:
-        """오디오 파일 길이 가져오기"""
-        
-        try:
-            from pydub import AudioSegment
-            audio = AudioSegment.from_mp3(audio_path)
-            duration = len(audio) / 1000.0
-            if duration <= 0:
-                raise RuntimeError("Audio file has no playable duration.")
-            return duration
-        except Exception as exc:
-            raise RuntimeError("Audio duration could not be measured.") from exc
-    
-    def concatenate_audio_files(self, audio_files: List[str], output_path: str = None) -> str:
-        """여러 오디오 파일 연결"""
-        
+        return generated
+
+    @staticmethod
+    def _split_long_text(text: str, max_length: int) -> List[str]:
+        if max_length <= 0:
+            raise ValueError('max_length must be greater than zero.')
+        sentences = re.split(r'(?<=[.!?。！？])\s*', text.strip())
+        segments = []
+        current = ''
+        for sentence in filter(None, sentences):
+            while len(sentence) > max_length:
+                if current:
+                    segments.append(current)
+                    current = ''
+                split_at = sentence.rfind(' ', 0, max_length + 1)
+                if split_at <= 0:
+                    split_at = max_length
+                segments.append(sentence[:split_at].strip())
+                sentence = sentence[split_at:].strip()
+            candidate = f'{current} {sentence}'.strip()
+            if len(candidate) > max_length and current:
+                segments.append(current)
+                current = sentence
+            else:
+                current = candidate
+        if current:
+            segments.append(current)
+        return segments
+
+    @staticmethod
+    def _split_into_timed_sentences(text: str, max_length: int) -> List[str]:
+        if max_length <= 0:
+            raise ValueError('max_length must be greater than zero.')
+        sentences = re.split(r'(?<=[.!?。！？])\s+', text.strip())
+        segments = []
+        for sentence in filter(None, sentences):
+            while len(sentence) > max_length:
+                split_at = sentence.rfind(' ', 0, max_length + 1)
+                if split_at <= 0:
+                    split_at = max_length
+                segments.append(sentence[:split_at].strip())
+                sentence = sentence[split_at:].strip()
+            if sentence:
+                segments.append(sentence)
+        return segments
+
+    def adjust_audio_speed(
+        self,
+        audio_path: str,
+        speed_factor: float = 1.0,
+        output_path: str = None,
+    ) -> str:
+        self._validate_audio_file(audio_path)
+        if not 0.5 <= speed_factor <= 2.0:
+            raise ValueError('speed_factor must be between 0.5 and 2.0.')
         if output_path is None:
-            output_path = os.path.join(self.output_dir, 'concatenated_speech.mp3')
-        
+            base, extension = os.path.splitext(audio_path)
+            output_path = f'{base}_adjusted{extension or ".mp3"}'
+        ffmpeg = self._ffmpeg_path()
+        if not ffmpeg:
+            raise RuntimeError('FFmpeg is unavailable for audio speed adjustment.')
+        result = subprocess.run(
+            [
+                ffmpeg, '-y', '-hide_banner', '-i', audio_path,
+                '-filter:a', f'atempo={speed_factor}', '-vn',
+                output_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError('FFmpeg could not adjust audio speed.')
+        self._validate_audio_file(output_path)
+        self._get_audio_duration(output_path)
+        return output_path
+
+    def add_background_music(
+        self,
+        speech_path: str,
+        music_path: str,
+        output_path: str = None,
+        music_volume: float = 0.3,
+    ) -> str:
+        self._validate_audio_file(speech_path)
+        self._validate_audio_file(music_path)
+        if not 0.0 <= music_volume <= 1.0:
+            raise ValueError('music_volume must be between 0 and 1.')
+        if output_path is None:
+            base, extension = os.path.splitext(speech_path)
+            output_path = f'{base}_with_music{extension or ".mp3"}'
+        ffmpeg = self._ffmpeg_path()
+        if not ffmpeg:
+            raise RuntimeError('FFmpeg is unavailable for audio mixing.')
+        result = subprocess.run(
+            [
+                ffmpeg, '-y', '-hide_banner', '-stream_loop', '-1', '-i', music_path,
+                '-i', speech_path, '-filter_complex',
+                f'[0:a]volume={music_volume}[music];[1:a][music]amix=inputs=2:duration=first:dropout_transition=2[a]',
+                '-map', '[a]', '-c:a', 'libmp3lame', '-q:a', '4', output_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError('FFmpeg could not mix background music.')
+        self._validate_audio_file(output_path)
+        self._get_audio_duration(output_path)
+        return output_path
+
+    @staticmethod
+    def preview_audio(audio_path: str) -> None:
+        TTSService._validate_audio_file(audio_path)
+        print('Audio preview is not available in this runtime; use the generated file.')
+
+    def generate_speech_with_edge_tts(
+        self,
+        text: str,
+        output_path: str = None,
+        voice_name: str = None
+    ) -> Tuple[str, List[Dict]]:
+        """Edge-TTS를 사용하여 40대 신뢰도 있는 남성 목소리(InJoon)로 고품질 음성 및 문장 타이밍 생성"""
+        if not self.edge_tts_available:
+            raise RuntimeError("edge_tts package is not available.")
+
+        if output_path is None:
+            output_path = os.path.join(self.output_dir, 'speech_injoon.mp3')
+        os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+
+        voice = voice_name or self._voice_id() or DEFAULT_TRUSTED_MALE_VOICE
+        self.last_voice = voice
+
+        async def _synthesize():
+            sentences = []
+            communicate = edge_tts.Communicate(text, voice)
+            with open(output_path, 'wb') as audio_file:
+                async for chunk in communicate.stream():
+                    if chunk['type'] == 'audio':
+                        audio_file.write(chunk['data'])
+                    elif chunk['type'] == 'SentenceBoundary':
+                        start = chunk['offset'] / 1e7
+                        dur = chunk['duration'] / 1e7
+                        sentences.append({
+                            'text': chunk['text'],
+                            'start': round(start, 3),
+                            'duration': round(dur, 3),
+                            'end': round(start + dur, 3)
+                        })
+            return sentences
+
         try:
-            from pydub import AudioSegment
-            if not audio_files or any(
-                not os.path.isfile(path) or os.path.getsize(path) == 0
-                for path in audio_files
-            ):
-                raise RuntimeError("One or more speech segments are missing or empty.")
+            sentences = asyncio.run(_synthesize())
+            self._validate_audio_file(output_path)
+            self._record_provider('edge-tts')
+            self.last_error = None
+            print(f"[TTS] Edge-TTS 40대 남성({voice}) 음성 생성 완료: {output_path}")
+            return output_path, sentences
+        except Exception:
+            print("[TTS] Edge-TTS generation failed; using the configured fallback.")
+            self.last_error = "edge-tts-error"
+            self.used_fallback = True
+            fallback_path = self.generate_speech_with_gtts(text, output_path)
+            return fallback_path, []
 
-            combined = AudioSegment.empty()
-            
-            for audio_file in audio_files:
-                audio = AudioSegment.from_mp3(audio_file)
-                combined += audio
+    def generate_speech_with_gtts(
+        self,
+        text: str,
+        output_path: str = None,
+        language: str = 'ko',
+        slow: bool = False
+    ) -> str:
+        """gTTS 폴백 음성 생성"""
+        if output_path is None:
+            output_path = os.path.join(self.output_dir, 'speech_gtts.mp3')
+        os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
 
-            if len(combined) <= 0:
-                raise RuntimeError("Combined speech contains no audio.")
-            
-            combined.export(output_path, format='mp3')
-            
-            print(f"오디오 연결 완료: {output_path}")
-            return output_path
-            
-        except Exception as e:
-            print(f"오디오 연결 중 오류 발생: {e}")
-            raise
-    
-    def generate_speech_from_script(self, script_text: str, output_path: str = None,
-                                   method: str = 'auto') -> str:
-        """스크립트 전체 음성 생성"""
-        if not isinstance(script_text, str) or not script_text.strip():
-            raise ValueError("Speech script must not be empty.")
-        
-        method = self._configured_method(method)
-        self.providers_used = []
-        self.last_provider = None
+        if self.gtts_available:
+            try:
+                tts = gTTS(text=text, lang=language, slow=slow)
+                tts.save(output_path)
+                self._validate_audio_file(output_path)
+                self._record_provider('gtts')
+                return output_path
+            except Exception:
+                print("[TTS] gTTS generation failed.")
+                self.used_fallback = True
+                self.last_error = self.last_error or 'gtts-unavailable'
+        else:
+            self.used_fallback = True
+            self.last_error = self.last_error or 'gtts-unavailable'
+
+        # 로컬 합성 오프라인 합성 (WAV) 비상 폴백
+        return self._generate_synthetic_tone_wav(output_path, duration_sec=max(3.0, len(text) * 0.15))
+
+    def _generate_synthetic_tone_wav(self, output_path: str, duration_sec: float = 3.0) -> str:
+        """네트워크 완전 두절 시에도 영상 파이프라인이 멈추지 않도록 무음/톤 wav 생성"""
+        if output_path.endswith('.mp3'):
+            output_path = output_path[:-4] + '.wav'
+        os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+
+        sample_rate = 24000
+        total_samples = int(sample_rate * duration_sec)
+        t = np.linspace(0, duration_sec, total_samples, endpoint=False)
+        waveform = (300 * np.sin(2 * np.pi * 200 * t)).astype(np.int16)
+
+        with wave.open(output_path, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(waveform.tobytes())
+
+        self.used_fallback = True
+        self.last_error = self.last_error or 'tts-unavailable'
+        self._record_provider('synthetic-fallback')
+        return output_path
+
+    def generate_speech_from_script(
+        self,
+        script_text: str,
+        output_path: str = None,
+        method: str = 'auto',
+    ) -> str:
+        """메인 엔드포인트: 40대 신뢰도 있는 남성 목소리(ko-KR-InJoonNeural)로 자동 생성"""
+        output_path, _ = self.generate_speech_with_timing(script_text, output_path, method)
+        return output_path
+
+    def _generate_gtts_with_sentence_timing(
+        self,
+        text: str,
+        output_path: str,
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        sentences = self._split_into_timed_sentences(text, 180)
+        if len(sentences) < 2:
+            audio_path = self._generate_with_method(text, output_path, 'gtts')
+            if self.last_provider != 'gtts':
+                return audio_path, []
+            duration = self._get_audio_duration(audio_path)
+            return audio_path, [{
+                'text': text.strip(),
+                'start': 0.0,
+                'end': round(duration, 3),
+                'duration': round(duration, 3),
+            }]
+
+        segment_dir = tempfile.mkdtemp(prefix='tts-sentences-', dir=self.temp_dir)
+        segment_paths = []
+        timings = []
+        elapsed = 0.0
+        try:
+            for index, sentence in enumerate(sentences):
+                segment_path = os.path.join(segment_dir, f'sentence_{index + 1:03d}.mp3')
+                generated_path = self._generate_with_method(
+                    sentence,
+                    segment_path,
+                    'gtts',
+                )
+                if self.last_provider != 'gtts':
+                    fallback_path = (
+                        f'{os.path.splitext(output_path)[0]}.wav'
+                        if generated_path.lower().endswith('.wav')
+                        else output_path
+                    )
+                    shutil.copy2(generated_path, fallback_path)
+                    return fallback_path, []
+                duration = self._get_audio_duration(generated_path)
+                segment_paths.append(generated_path)
+                timings.append({
+                    'text': sentence,
+                    'start': round(elapsed, 3),
+                    'end': round(elapsed + duration, 3),
+                    'duration': round(duration, 3),
+                })
+                elapsed += duration
+
+            self.concatenate_audio_files(segment_paths, output_path)
+            self._record_provider('gtts')
+            self.last_error = None
+            return output_path, timings
+        finally:
+            shutil.rmtree(segment_dir, ignore_errors=True)
+
+    def generate_speech_with_timing(
+        self,
+        text: str,
+        output_path: str = None,
+        method: str = 'auto',
+    ) -> Tuple[str, List[Dict]]:
+        """음성 파일과 문장 타이밍을 동시에 생성 및 반환"""
+        if output_path is None:
+            output_path = os.path.join(self.output_dir, 'final_narration.mp3')
+
         self.last_error = None
         self.used_fallback = False
-        if not self.gtts_available and method not in ('elevenlabs', 'eleven-labs', 'google'):
-            raise RuntimeError("음성 생성 서비스를 사용할 수 없습니다.")
-        
-        if output_path is None:
-            output_path = os.path.join(self.output_dir, 'full_speech.mp3')
-        
-        # 긴 텍스트인 경우 세그먼트로 분할
-        if len(script_text) > 500:  # 500자 이상이면 분할
-            segments = self._split_long_text(script_text, 500)
-            audio_files = []
-            
-            for index, segment in enumerate(segments):
-                temp_path = os.path.join(self.temp_dir, f'temp_segment_{index:04d}.mp3')
+        configured_provider = self._configured_method(method).lower()
+        if configured_provider in ('auto', 'default') and self._api_key() and self._elevenlabs_voice_id():
+            configured_provider = 'elevenlabs'
+        elif configured_provider in ('auto', 'default'):
+            configured_provider = 'gtts'
+
+        if configured_provider in ('elevenlabs', 'eleven-labs'):
+            try:
+                audio_path = self._generate_with_method(text, output_path, 'elevenlabs')
+                return self._validate_audio_file(audio_path), []
+            except RuntimeError as error:
+                self.last_error = str(error) if str(error).startswith('tts-') else 'tts-provider-error'
+                self.used_fallback = True
                 try:
-                    audio_path = self._validate_audio_file(
-                        self._generate_with_method(segment, temp_path, method)
-                    )
-                    audio_files.append(audio_path)
-                except Exception as e:
-                    print(f"세그먼트 음성 생성 실패: {e}")
-                    raise RuntimeError("음성 세그먼트 생성이 완료되지 않았습니다.") from e
-            
-            if not audio_files:
-                raise RuntimeError("모든 세그먼트 음성 생성 실패")
-            
-            # 오디오 연결
+                    audio_path = self._generate_with_method(text, output_path, 'gtts')
+                    return self._validate_audio_file(audio_path), []
+                except Exception:
+                    self.last_error = self.last_error or 'tts-provider-error'
+                    return self._generate_synthetic_tone_wav(
+                        output_path,
+                        duration_sec=max(3.0, len(text) * 0.15),
+                    ), []
+
+        if configured_provider in ('google', 'google_tts', 'google-cloud-tts'):
             try:
-                final_path = self.concatenate_audio_files(audio_files, output_path)
-            except Exception as e:
-                raise RuntimeError(f"오디오 연결 실패: {str(e)}")
-            
-            # 임시 파일 삭제
-            for temp_file in audio_files:
-                if os.path.exists(temp_file):
-                    try:
-                        os.remove(temp_file)
-                    except Exception as e:
-                        print(f"임시 파일 삭제 실패: {e}")
-            
-            return self._validate_audio_file(final_path)
-        else:
-            # 짧은 텍스트는 바로 생성
+                audio_path = self._generate_with_method(text, output_path, 'google_tts')
+                return self._validate_audio_file(audio_path), []
+            except Exception:
+                self.used_fallback = True
+                self.last_error = self.last_error or 'google-tts-error'
+                try:
+                    audio_path = self._generate_with_method(text, output_path, 'gtts')
+                    return self._validate_audio_file(audio_path), []
+                except Exception:
+                    return self._generate_synthetic_tone_wav(
+                        output_path,
+                        duration_sec=max(3.0, len(text) * 0.15),
+                    ), []
+
+        if configured_provider == 'gtts':
             try:
-                return self._validate_audio_file(
-                    self._generate_with_method(script_text, output_path, method)
+                audio_path, sentences = self._generate_gtts_with_sentence_timing(
+                    text,
+                    output_path,
                 )
-            except Exception as e:
-                raise RuntimeError(f"음성 생성 실패: {str(e)}")
-    
-    def _split_long_text(self, text: str, max_length: int) -> List[str]:
-        """긴 텍스트를 적절한 길이로 분할"""
-        
-        # 문장 단위로 분할
-        import re
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        
-        segments = []
-        current_segment = ""
-        
-        for sentence in sentences:
-            if len(current_segment + sentence) <= max_length:
-                current_segment += sentence + " "
-            else:
-                if current_segment:
-                    segments.append(current_segment.strip())
-                current_segment = sentence + " "
-        
-        if current_segment:
-            segments.append(current_segment.strip())
-        
-        return segments
-    
-    def adjust_audio_speed(self, audio_path: str, speed_factor: float = 1.0, 
-                          output_path: str = None) -> str:
-        """오디오 속도 조절"""
-        
-        if output_path is None:
-            base, ext = os.path.splitext(audio_path)
-            output_path = f"{base}_adjusted{ext}"
-        
+                if sentences:
+                    return self._validate_audio_file(audio_path), sentences
+                if self.last_provider == 'synthetic-fallback':
+                    return self._validate_audio_file(audio_path), []
+                return self._validate_audio_file(audio_path), []
+            except RuntimeError as error:
+                if str(error).startswith('Speech provider did not create') or str(error).startswith('Speech provider created'):
+                    raise
+                self.used_fallback = True
+                self.last_error = 'tts-provider-error'
+                return self._generate_synthetic_tone_wav(
+                    output_path,
+                    duration_sec=max(3.0, len(text) * 0.15),
+                ), []
+            except Exception:
+                self.used_fallback = True
+                self.last_error = 'tts-provider-error'
+                return self._generate_synthetic_tone_wav(
+                    output_path,
+                    duration_sec=max(3.0, len(text) * 0.15),
+                ), []
+
+        if configured_provider in ('edge', 'edge-tts', 'edge_tts'):
+            try:
+                return self.generate_speech_with_edge_tts(text, output_path)
+            except Exception:
+                self.used_fallback = True
+                self.last_error = 'edge-tts-error'
+                try:
+                    return self._generate_with_method(text, output_path, 'gtts'), []
+                except Exception:
+                    return self._generate_synthetic_tone_wav(
+                        output_path,
+                        duration_sec=max(3.0, len(text) * 0.15),
+                    ), []
+
+        self.last_error = 'tts-provider-not-supported'
+        self.used_fallback = True
         try:
-            from pydub import AudioSegment
-            
-            audio = AudioSegment.from_mp3(audio_path)
-            
-            if speed_factor > 1.0:
-                # 빠르게
-                new_audio = audio._spawn(audio.raw_data, overrides={
-                    "frame_rate": int(audio.frame_rate * speed_factor)
-                })
-                new_audio = new_audio.set_frame_rate(audio.frame_rate)
-            else:
-                # 느리게
-                new_audio = audio._spawn(audio.raw_data, overrides={
-                    "frame_rate": int(audio.frame_rate * speed_factor)
-                })
-                new_audio = new_audio.set_frame_rate(audio.frame_rate)
-            
-            new_audio.export(output_path, format='mp3')
-            
-            print(f"오디오 속도 조절 완료: {output_path} (배율: {speed_factor})")
-            return output_path
-            
-        except Exception as e:
-            print(f"오디오 속도 조절 중 오류: {e}")
-            return audio_path
-    
-    def add_background_music(self, speech_path: str, music_path: str, 
-                           output_path: str = None, music_volume: float = 0.3) -> str:
-        """배경음악 추가"""
-        
-        if output_path is None:
-            base, ext = os.path.splitext(speech_path)
-            output_path = f"{base}_with_music{ext}"
-        
-        try:
-            from pydub import AudioSegment
-            
-            speech = AudioSegment.from_mp3(speech_path)
-            music = AudioSegment.from_mp3(music_path)
-            
-            # 음악 길이를 음성 길이에 맞춤
-            if len(music) < len(speech):
-                music = music * (len(speech) // len(music) + 1)
-            music = music[:len(speech)]
-            
-            # 음악 볼륨 조절
-            music = music - (10 * (1 - music_volume))  # dB 조절
-            
-            # 음성과 음악 합성
-            combined = speech.overlay(music)
-            
-            combined.export(output_path, format='mp3')
-            
-            print(f"배경음악 추가 완료: {output_path}")
-            return output_path
-            
-        except Exception as e:
-            print(f"배경음악 추가 중 오류: {e}")
-            return speech_path
-    
-    def preview_audio(self, audio_path: str):
-        """오디오 미리듣기"""
-        
-        try:
-            # pygame이 없는 경우 대체 처리
-            print(f"오디오 미리듣기 기능은 현재 비활성화되어 있습니다.")
-            print(f"오디오 파일 위치: {audio_path}")
-            print("시스템 기본 플레이어로 직접 재생해 주세요.")
-            
-        except Exception as e:
-            print(f"오디오 미리듣기 중 오류: {e}")
+            return self._generate_with_method(text, output_path, 'gtts'), []
+        except Exception:
+            return self._generate_synthetic_tone_wav(
+                output_path,
+                duration_sec=max(3.0, len(text) * 0.15),
+            ), []

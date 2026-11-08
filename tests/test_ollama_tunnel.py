@@ -120,6 +120,8 @@ class OllamaTunnelTests(unittest.TestCase):
             self.assertEqual(saved["OLLAMA_BASE_URL"], "https://test.trycloudflare.com")
             self.assertEqual(saved["OLLAMA_BASE_URL_14"], "https://test.trycloudflare.com")
             self.assertEqual(saved["OLLAMA_MODEL_13"], "llama3.2:latest")
+            self.assertEqual(saved["TTS_PROVIDER"], "elevenlabs")
+            self.assertEqual(saved["TTS_LANGUAGE"], "ko-KR")
             self.assertEqual(len(copied), 1)
             self.assertIn("OLLAMA_BASE_URL=https://test.trycloudflare.com", copied[0])
             self.assertIn("OLLAMA_BASE_URL_14=https://test.trycloudflare.com", copied[0])
@@ -129,6 +131,66 @@ class OllamaTunnelTests(unittest.TestCase):
             self.assertIn("AUTH_TOKEN=generated-token", copied[0])
             self.assertNotIn("test-api-key", repr(output.call_args_list))
             self.assertNotIn("generated-token", repr(output.call_args_list))
+
+    @patch("scripts.prepare_preview.secrets.token_urlsafe", return_value="generated-token")
+    @patch("scripts.prepare_preview._verify_local_ollama", return_value="llama3.2:latest")
+    def test_preview_setup_uses_real_gtts_fallback_without_elevenlabs_credentials(
+        self,
+        _verify_ollama,
+        _make_token,
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            env_path = Path(directory) / ".env"
+            copied = []
+
+            def run_tunnel(token, model, on_tunnel_url):
+                self.assertEqual(token, "generated-token")
+                self.assertEqual(model, "llama3.2:latest")
+                on_tunnel_url("https://test.trycloudflare.com")
+                return 0
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "TTS_API_KEY": "",
+                    "apiKey": "",
+                    "TTS_VOICE": "",
+                    "TTS_LANGUAGE": "ko-KR",
+                },
+                clear=False,
+            ):
+                result = prepare_preview(
+                    env_path=env_path,
+                    tunnel_runner=run_tunnel,
+                    clipboard_writer=copied.append,
+                )
+
+            saved = dotenv_values(env_path)
+            self.assertEqual(result, 0)
+            self.assertEqual(saved["TTS_PROVIDER"], "gtts")
+            self.assertEqual(saved["TTS_LANGUAGE"], "ko-KR")
+            self.assertNotIn("TTS_API_KEY", saved)
+            self.assertNotIn("TTS_VOICE", saved)
+            self.assertIn("TTS_PROVIDER=gtts", copied[0])
+            self.assertIn("TTS_LANGUAGE=ko-KR", copied[0])
+            self.assertNotIn("TTS_API_KEY=", copied[0])
+            self.assertNotIn("TTS_VOICE=", copied[0])
+
+    @patch("scripts.prepare_preview._verify_local_ollama")
+    def test_preview_setup_rejects_partial_elevenlabs_configuration(self, _verify_ollama):
+        with patch.dict(
+            "os.environ",
+            {"TTS_API_KEY": "", "apiKey": "", "TTS_VOICE": ""},
+            clear=False,
+        ):
+            with self.assertRaisesRegex(ValueError, "both the ElevenLabs API key and voice ID"):
+                prepare_preview(
+                    "configured-key",
+                    "",
+                    env_path=Path("unused.env"),
+                    tunnel_runner=Mock(),
+                    clipboard_writer=Mock(),
+                )
 
 
 if __name__ == "__main__":
