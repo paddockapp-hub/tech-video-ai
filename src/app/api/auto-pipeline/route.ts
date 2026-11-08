@@ -14,7 +14,20 @@ const execAsync = promisify(exec);
 let activeRenders = 0;
 const MAX_CONCURRENT_RENDERS = 2;
 
+export const runtime = "nodejs";
+
 export async function POST(request: NextRequest) {
+  if (process.env.VERCEL === "1") {
+    return NextResponse.json(
+      {
+        error:
+          "자동 렌더링은 Python/FFmpeg 워커와 영구 아티팩트 저장소가 필요하며 현재 Vercel 연동이 구성되지 않았습니다.",
+        code: "RENDERER_NOT_CONFIGURED",
+      },
+      { status: 503 }
+    );
+  }
+
   let currentUser = await getCurrentUser();
   let creditDeducted = false;
 
