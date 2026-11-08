@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "자동 렌더링은 Python/FFmpeg 워커와 영구 아티팩트 저장소가 필요하며 현재 Vercel 연동이 구성되지 않았습니다.",
+          "서버 Python 렌더링은 Vercel에서 지원되지 않습니다. /auto에서 브라우저 기반 WebM 영상을 생성할 수 있습니다.",
         code: "RENDERER_NOT_CONFIGURED",
       },
       { status: 503 }

@@ -29,18 +29,18 @@ export default function HomePage() {
         <div className="grid gap-6 sm:grid-cols-3">
           <FeatureCard
             icon={<Zap className="h-6 w-6 text-cyan-400" />}
-            title="원클릭 숏츠 파이프라인"
-            desc="주제만 넣으면 40대 남성 신뢰감 보이스와 2~4단어 임팩트 자막, 1080×1920 세로 영상이 1분 안에 완성됩니다."
+            title="브라우저 WebM 영상 생성"
+            desc="대본 자막과 기하학 애니메이션을 포함한 실제 720×1280 세로 영상을 브라우저에서 만들고 다운로드합니다."
           />
           <FeatureCard
             icon={<Sparkles className="h-6 w-6 text-indigo-400" />}
             title="교육 & 공학 심화 특화"
-            desc="고등·수능 킬러 개념부터 기계, 항공, 반도체 메커니즘까지 정확한 용어와 시각화로 몰입도를 극대화합니다."
+            desc="고등·수능 개념부터 기계, 항공, 반도체 주제까지 대본과 프롬프트 초안을 준비합니다."
           />
           <FeatureCard
             icon={<ShieldCheck className="h-6 w-6 text-emerald-400" />}
-            title="30 / 100 / 150회 멤버십"
-            desc="수수료 없는 계좌이체 간편 활성화로 원하는 만큼 영상을 안정적으로 대량 생산할 수 있습니다."
+            title="유료 영상 생성 일시 중지"
+            desc="브라우저 로컬 WebM 제작은 무료입니다. 서버 렌더링·계정 영속성 연결 전까지 신규 결제를 받지 않습니다."
           />
         </div>
 
@@ -68,14 +68,14 @@ export default function HomePage() {
                 보관 중인 프로젝트가 없습니다
               </h3>
               <p className="text-xs text-slate-500 max-w-sm mx-auto mb-6">
-                새 프로젝트를 생성하거나, 원클릭 자동 생성기로 1분 만에 첫 쇼츠를 만들어보세요.
+                새 프롬프트 프로젝트를 만들거나, 브라우저에서 WebM 쇼츠를 생성해보세요.
               </p>
               <div className="flex justify-center gap-3">
                 <Link
                   href="/auto"
                   className="rounded-xl bg-cyan-600 px-5 py-2.5 text-xs font-bold text-white shadow-lg hover:bg-cyan-500 transition"
                 >
-                  AI 쇼츠 자동 생성 시작
+                  무료 브라우저 영상 만들기
                 </Link>
               </div>
             </div>

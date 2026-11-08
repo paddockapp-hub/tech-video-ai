@@ -26,20 +26,34 @@ export async function GET() {
   const allTransfers = DB.getTransfers();
   const myTransfers = allTransfers.filter((t) => t.userId === user.id);
 
+  const billingAvailable = process.env.VERCEL !== "1";
   return NextResponse.json({
-    bankConfig: {
-      bankName: config.bankName,
-      accountNumber: config.accountNumber,
-      accountHolder: config.accountHolder,
-      transferNotice: config.transferNotice,
-      tierLimits: config.tierLimits,
-      tierPricesKRW: config.tierPricesKRW,
-    },
+    billingAvailable,
+    bankConfig: billingAvailable
+      ? {
+          bankName: config.bankName,
+          accountNumber: config.accountNumber,
+          accountHolder: config.accountHolder,
+          transferNotice: config.transferNotice,
+          tierLimits: config.tierLimits,
+          tierPricesKRW: config.tierPricesKRW,
+        }
+      : null,
     transfers: myTransfers,
   });
 }
 
 export async function POST(req: NextRequest) {
+  if (process.env.VERCEL === "1") {
+    return NextResponse.json(
+      {
+        error: "영구 데이터베이스와 영상 생성 크레딧이 구성될 때까지 신규 결제 신청을 중지했습니다.",
+        code: "BILLING_NOT_CONFIGURED",
+      },
+      { status: 503 }
+    );
+  }
+
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });

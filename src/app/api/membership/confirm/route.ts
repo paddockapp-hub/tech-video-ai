@@ -3,6 +3,16 @@ import { getCurrentUser } from "@/lib/auth";
 import { DB } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
+  if (process.env.VERCEL === "1") {
+    return NextResponse.json(
+      {
+        error: "영구 데이터베이스 연동 전까지 입금 확인 요청을 처리할 수 없습니다.",
+        code: "BILLING_NOT_CONFIGURED",
+      },
+      { status: 503 }
+    );
+  }
+
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
@@ -44,4 +54,3 @@ export async function POST(req: NextRequest) {
     transfer,
   });
 }
-
