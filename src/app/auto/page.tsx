@@ -5,15 +5,10 @@ import Link from "next/link";
 import {
   ArrowLeft,
   Sparkles,
-  Play,
   Download,
   Loader2,
-  Volume2,
   CheckCircle2,
   AlertCircle,
-  Film,
-  Mic,
-  Type,
   Zap,
   GraduationCap,
   Cpu,
@@ -23,19 +18,23 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Header } from "@/components/Header";
-import { CATEGORIES, CategoryGroup, CategorySubItem } from "@/lib/categories";
+import { CATEGORIES } from "@/lib/categories";
 import { generateScriptTemplate } from "@/lib/script-generator";
+import { renderBrowserVideo } from "@/lib/browser-video";
 
 type PipelineStatus = "idle" | "generating" | "success" | "error";
 
 interface PipelineResult {
-  video: string | null;
-  audio: string | null;
-  subtitles: string | null;
-  viralSubtitles: string | null;
-  files: string[];
+  video: string;
+  durationSec: number;
+  format: string;
+  provenance: string;
   qualityPassed: boolean;
   qualityReport: string;
+}
+
+function estimateDuration(script: string) {
+  return Math.max(12, Math.min(30, Math.ceil(script.length / 7)));
 }
 
 export default function AutoPage() {
@@ -71,6 +70,12 @@ export default function AutoPage() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (result?.video) URL.revokeObjectURL(result.video);
+    };
+  }, [result?.video]);
+
   // 카테고리 전환 시 기본 세부항목 선택
   function handleSelectCategory(catId: "education" | "engineering") {
     setSelectedCategory(catId);
@@ -96,11 +101,11 @@ export default function AutoPage() {
     setScript(res.narrationScript);
   }
 
-  function handleAutoGenerateScript() {
+  function handleAutoGenerateScript(customTopic = title) {
     const res = generateScriptTemplate({
       category: selectedCategory,
       subcategory: selectedSubcategory,
-      customTopic: title,
+      customTopic,
       targetDurationSec: 45,
     });
     setScript(res.narrationScript);
@@ -119,34 +124,28 @@ export default function AutoPage() {
       setElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
-    setProgress("신뢰도 40대 남성 TTS 음성 합성 중...");
+    const durationSec = estimateDuration(script.trim());
+    setProgress("브라우저에서 실제 WebM 영상 장면을 렌더링 중...");
 
     try {
-      const res = await fetch("/api/auto-pipeline", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          script: script.trim(),
-          title: title.trim(),
-          category: selectedCategory,
-          subcategory: selectedSubcategory,
-        }),
+      const blob = await renderBrowserVideo({
+        script: script.trim(),
+        title: title.trim(),
+        category: selectedCategory,
+        durationSec,
+        onProgress: (progress) => {
+          setProgress(`브라우저에서 영상 인코딩 중... ${Math.round(progress * 100)}%`);
+        },
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "영상 생성 실패");
-      }
+      const video = URL.createObjectURL(blob);
 
       setResult({
-        video: data.video,
-        audio: data.audio,
-        subtitles: data.subtitles,
-        viralSubtitles: data.viralSubtitles,
-        files: data.files || [],
-        qualityPassed: data.qualityPassed ?? true,
-        qualityReport: data.qualityReport ?? "품질 검증 통과",
+        video,
+        durationSec,
+        format: blob.type || "video/webm",
+        provenance: "브라우저 로컬 렌더링 (AI 이미지/TTS 미사용)",
+        qualityPassed: blob.size > 0,
+        qualityReport: `WebM 파일 생성 확인 · ${(blob.size / (1024 * 1024)).toFixed(1)} MB`,
       });
       setStatus("success");
       setProgress("완료되었습니다!");
@@ -188,14 +187,13 @@ export default function AutoPage() {
         <div className="mb-8">
           <div className="mb-2.5 inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-4 py-1 text-xs font-semibold text-indigo-300">
             <Zap className="h-3.5 w-3.5 text-cyan-400" />
-            원클릭 AI 쇼츠 생성 파이프라인
+            브라우저 기반 세로 영상 제작
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-            지식 & 메커니즘 숏츠 자동 제작기
+            지식 & 메커니즘 숏츠 제작기
           </h1>
           <p className="mt-2 text-sm text-slate-400">
-            신뢰도 있는 <span className="text-cyan-400 font-semibold">40대 남성 보이스</span>와{" "}
-            <span className="text-amber-400 font-semibold">바이럴 2~4단어 임팩트 자막</span>, 1080×1920 세로 영상이 1분 안에 자동 출력됩니다.
+            대본과 제목으로 실제 WebM 세로 영상을 브라우저에서 생성합니다. 외부 서버 전송 없이 무료로 체험할 수 있으며, 음성 합성이나 AI 이미지 생성은 포함되지 않습니다.
           </p>
         </div>
 
@@ -276,7 +274,7 @@ export default function AutoPage() {
                   type="button"
                   onClick={() => {
                     setTitle(hk);
-                    handleAutoGenerateScript();
+                    handleAutoGenerateScript(hk);
                   }}
                   className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-slate-300 hover:border-indigo-500 hover:text-indigo-300 transition text-left"
                 >
@@ -296,6 +294,7 @@ export default function AutoPage() {
             <input
               type="text"
               value={title}
+              maxLength={100}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="예: 4행정 엔진 실린더 폭발의 원리"
               disabled={status === "generating"}
@@ -310,17 +309,18 @@ export default function AutoPage() {
               </label>
               <button
                 type="button"
-                onClick={handleAutoGenerateScript}
+                onClick={() => handleAutoGenerateScript()}
                 disabled={status === "generating"}
                 className="inline-flex items-center gap-1 text-xs font-medium text-cyan-400 hover:text-cyan-300 transition"
               >
                 <RefreshCw className="h-3 w-3" />
-                AI 대본 다시 작성
+                대본 템플릿 다시 생성
               </button>
             </div>
             <textarea
               rows={8}
               value={script}
+              maxLength={1500}
               onChange={(e) => setScript(e.target.value)}
               placeholder="나레이션 스크립트를 입력하세요..."
               disabled={status === "generating"}
@@ -328,7 +328,7 @@ export default function AutoPage() {
             />
             <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
               <span>{script.length}자 · 약 {Math.round(script.length / 5.5)}초 분량</span>
-              <span>보이스: 40대 남성 신뢰감 (ko-KR-InJoonNeural) 고정</span>
+              <span>브라우저 렌더 · 예상 {estimateDuration(script)}초 · 음성 없음</span>
             </div>
           </div>
 
@@ -346,7 +346,7 @@ export default function AutoPage() {
             ) : (
               <>
                 <Zap className="h-5 w-5" />
-                원클릭 고품질 AI 쇼츠 완성
+                무료 브라우저 영상 만들기 (WebM)
               </>
             )}
           </button>
@@ -357,23 +357,18 @@ export default function AutoPage() {
           <div className="mt-8 rounded-3xl border border-indigo-500/30 bg-slate-900/60 p-6 backdrop-blur-xl">
             <h3 className="text-base font-bold text-white mb-4 flex items-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin text-cyan-400" />
-              자동화 파이프라인 렌더링 중... ({elapsed}초)
+              브라우저에서 영상 렌더링 중... ({elapsed}초)
             </h3>
 
             <div className="space-y-3">
               <StepRow
-                label="40대 남성 신뢰도 TTS 음성 생성 (ko-KR-InJoonNeural)"
-                active={elapsed < 8}
-                done={elapsed >= 8}
+                label="제목·카테고리 기반 그래픽 장면 그리기"
+                active={elapsed < 2}
+                done={elapsed >= 2}
               />
               <StepRow
-                label="바이럴 2~4단어 임팩트 자막 타임스탬프 정밀 추출"
-                active={elapsed >= 8 && elapsed < 14}
-                done={elapsed >= 14}
-              />
-              <StepRow
-                label="1080×1920 세로 숏츠 메커니즘 시각화 및 최종 합성"
-                active={elapsed >= 14}
+                label="대본 자막을 영상 프레임에 합성"
+                active={elapsed >= 2}
                 done={false}
               />
             </div>
@@ -408,9 +403,9 @@ export default function AutoPage() {
               <div>
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400 border border-emerald-500/20 mb-2">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  제작 완료 ({elapsed}초 소요)
+                  브라우저 렌더 완료 ({elapsed}초 소요)
                 </div>
-                <h3 className="text-xl font-bold text-white">최종 영상이 성공적으로 완성되었습니다</h3>
+                <h3 className="text-xl font-bold text-white">실제 영상 파일이 생성되었습니다</h3>
               </div>
 
               {/* 품질 검증 통과 뱃지 */}
@@ -439,31 +434,21 @@ export default function AutoPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5 space-y-2">
                   <p className="text-xs font-semibold text-slate-400">적용된 스펙</p>
-                  <p className="text-xs text-slate-300">· 포맷: 1080×1920 (9:16 유튜브 숏츠 / 틱톡 최적화)</p>
-                  <p className="text-xs text-slate-300">· 보이스: InJoon 40대 남성 신뢰감 음성</p>
-                  <p className="text-xs text-slate-300">· 자막: 2~4단어 임팩트 네온 백드롭 자막</p>
-                  <p className="text-xs text-slate-300">· 저작권: 100% 무상업적 이용 가능 (클린 출력)</p>
+                  <p className="text-xs text-slate-300">· 포맷: {result.format} · 720×1280 (9:16)</p>
+                  <p className="text-xs text-slate-300">· 길이: 약 {result.durationSec}초 · 오디오 트랙 없음</p>
+                  <p className="text-xs text-slate-300">· 생성 방식: {result.provenance}</p>
+                  <p className="text-xs text-slate-300">· 크레딧: 차감 없음 (기기 내 로컬 생성)</p>
                 </div>
 
                 <div className="grid gap-3">
                   {result.video && (
                     <a
                       href={result.video}
-                      download
+                      download={`${title.replace(/[\\/:*?"<>|]+/g, "_").trim().slice(0, 60) || "shorts"}.webm`}
                       className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 py-3.5 text-sm font-bold text-white shadow-lg hover:brightness-110 active:scale-[0.98] transition"
                     >
                       <Download className="h-4 w-4" />
-                      최종 1080×1920 MP4 다운로드
-                    </a>
-                  )}
-                  {result.audio && (
-                    <a
-                      href={result.audio}
-                      download
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800 py-3 text-xs font-semibold text-slate-300 hover:bg-slate-700 transition"
-                    >
-                      <Volume2 className="h-4 w-4" />
-                      TTS 음성 MP3 다운로드
+                      WebM 영상 다운로드
                     </a>
                   )}
                 </div>

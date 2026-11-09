@@ -43,6 +43,7 @@ interface TransferItem {
 export default function MembershipPage() {
   const [user, setUser] = useState<any>(null);
   const [bankConfig, setBankConfig] = useState<BankConfig | null>(null);
+  const [billingAvailable, setBillingAvailable] = useState(false);
   const [transfers, setTransfers] = useState<TransferItem[]>([]);
   const [selectedTier, setSelectedTier] = useState<"basic" | "standard" | "premium">("standard");
   const [depositorName, setDepositorName] = useState("");
@@ -72,6 +73,7 @@ export default function MembershipPage() {
       }
 
       const transData = await transRes.json();
+      setBillingAvailable(transData.billingAvailable === true);
       if (transData.bankConfig) {
         setBankConfig(transData.bankConfig);
       }
@@ -221,16 +223,25 @@ export default function MembershipPage() {
         <div className="mb-12 text-center">
           <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-4 py-1.5 text-xs font-semibold text-indigo-300">
             <CreditCard className="h-3.5 w-3.5 text-amber-400" />
-            계좌이체 간편 멤버십 활성화
+            멤버십 안내
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-            합리적인 생성 한도 플랜
+            브라우저 영상 생성은 무료입니다
           </h1>
           <p className="mt-3 text-slate-400 max-w-xl mx-auto text-sm sm:text-base">
-            정식 카드 PG 연동 전까지 수수료 거품을 뺀{" "}
-            <span className="text-amber-400 font-semibold">계좌이체 특별 할인</span>으로 즉시 업그레이드하세요.
+            브라우저 로컬 WebM 제작에는 로그인이나 크레딧이 필요하지 않습니다. 서버 렌더링과 영구 계정 저장소가 준비될 때까지 신규 결제 신청은 중지됩니다.
           </p>
         </div>
+
+        {!billingAvailable && (
+          <div className="mb-8 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+            <p>
+              유료 렌더링은 현재 이용할 수 없습니다. 브라우저 영상 제작은 무료이며 결제가 발생하지 않습니다.
+              별도 렌더러와 영구 데이터 저장소가 연결될 때까지 계좌 정보와 결제 신청을 표시하지 않습니다.
+            </p>
+          </div>
+        )}
 
         {/* 내 현재 멤버십 상태 카드 */}
         {user && (
@@ -303,20 +314,33 @@ export default function MembershipPage() {
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-xl font-bold text-white">{t.name}</h3>
                   <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-cyan-400">
-                    월 {t.limit}회 생성
+                    {billingAvailable ? `월 ${t.limit}회 생성` : "유료 기능 준비 중"}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mb-6">{t.desc}</p>
 
                 <div className="mb-6 flex items-baseline gap-1">
-                  <span className="text-3xl font-extrabold text-white">
-                    {t.price.toLocaleString()}
-                  </span>
-                  <span className="text-sm font-semibold text-slate-400">원 / 월</span>
+                  {billingAvailable ? (
+                    <>
+                      <span className="text-3xl font-extrabold text-white">
+                        {t.price.toLocaleString()}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-400">원 / 월</span>
+                    </>
+                  ) : (
+                    <span className="text-xl font-bold text-slate-400">현재 결제 중지</span>
+                  )}
                 </div>
 
                 <div className="space-y-3 border-t border-slate-800/80 pt-6">
-                  {t.features.map((f, i) => (
+                  {(billingAvailable
+                    ? t.features
+                    : [
+                        "기기 브라우저에서 대본 자막 포함 720×1280 WebM 생성",
+                        "로컬 렌더링 · 서버 업로드 및 크레딧 차감 없음",
+                        "AI 이미지, TTS 음성, MP4 서버 렌더링 미포함",
+                      ]
+                  ).map((f, i) => (
                     <div key={i} className="flex items-start gap-2.5 text-xs text-slate-300">
                       <CheckCircle2 className="h-4 w-4 text-cyan-400 shrink-0 mt-0.5" />
                       <span>{f}</span>
@@ -330,20 +354,23 @@ export default function MembershipPage() {
                   setSelectedTier(t.id as any);
                   setActiveModal(true);
                 }}
+                disabled={!billingAvailable}
                 className={`mt-8 w-full rounded-xl py-3 text-sm font-semibold transition active:scale-[0.98] ${
-                  t.popular
+                  !billingAvailable
+                    ? "cursor-not-allowed bg-slate-800 text-slate-500"
+                    : t.popular
                     ? "bg-gradient-to-r from-indigo-600 to-cyan-500 text-white shadow-lg shadow-indigo-500/20 hover:brightness-110"
                     : "bg-slate-800 text-white hover:bg-slate-700"
                 }`}
               >
-                {t.name} 플랜 신청하기
+                {billingAvailable ? `${t.name} 플랜 신청하기` : "결제 신청 일시 중지"}
               </button>
             </div>
           ))}
         </div>
 
         {/* 입금 안내 계좌 정보 박스 */}
-        {bankConfig && (
+        {billingAvailable && bankConfig && (
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-8 mb-16">
             <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-emerald-400" />
@@ -538,4 +565,3 @@ export default function MembershipPage() {
     </div>
   );
 }
-

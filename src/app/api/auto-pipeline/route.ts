@@ -14,7 +14,20 @@ const execAsync = promisify(exec);
 let activeRenders = 0;
 const MAX_CONCURRENT_RENDERS = 2;
 
+export const runtime = "nodejs";
+
 export async function POST(request: NextRequest) {
+  if (process.env.VERCEL === "1") {
+    return NextResponse.json(
+      {
+        error:
+          "서버 Python 렌더링은 Vercel에서 지원되지 않습니다. /auto에서 브라우저 기반 WebM 영상을 생성할 수 있습니다.",
+        code: "RENDERER_NOT_CONFIGURED",
+      },
+      { status: 503 }
+    );
+  }
+
   let currentUser = await getCurrentUser();
   let creditDeducted = false;
 

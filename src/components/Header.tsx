@@ -71,7 +71,7 @@ export function Header() {
             className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3.5 py-2 text-sm font-semibold text-cyan-300 hover:bg-cyan-500/20 transition-all"
           >
             <Zap className="h-4 w-4" />
-            <span className="hidden sm:inline">AI 숏츠</span> 자동 생성
+            <span className="hidden sm:inline">브라우저 영상</span> 제작
           </Link>
 
           <Link
@@ -148,21 +148,21 @@ export function HeroSection() {
       <div className="relative mx-auto max-w-3xl">
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-4 py-1.5 text-xs font-semibold text-indigo-300">
           <Zap className="h-3.5 w-3.5 text-cyan-400" />
-          교육(수능·대학) & 공학(작동원리) 특화 영상 자동화
+          대본과 자막을 브라우저에서 영상으로 제작
         </div>
 
         <h1 className="mb-6 text-4xl font-extrabold tracking-tight text-white sm:text-6xl">
           지식을 시각화하는
           <br />
           <span className="bg-gradient-to-r from-indigo-400 via-cyan-300 to-purple-400 bg-clip-text text-transparent">
-            고퀄리티 AI 쇼츠 제작
+            세로 WebM 쇼츠 제작
           </span>
         </h1>
 
         <p className="mx-auto max-w-xl text-base text-slate-300 sm:text-lg leading-relaxed">
-          스크립트나 키워드만 입력하면 신뢰감 있는 40대 남성 보이스와
+          대본과 주제를 입력하면 브라우저에서 실제 720×1280 WebM 영상과
           <br className="hidden sm:block" />
-          바이럴 자막, 정밀 메커니즘 애니메이션이 결합된 1080×1920 MP4가 완성됩니다.
+          자막·기하학 애니메이션을 만들 수 있습니다. 음성 합성은 포함되지 않습니다.
         </p>
 
         <div className="mt-8 flex flex-wrap justify-center gap-4">
@@ -171,7 +171,7 @@ export function HeroSection() {
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-indigo-500/25 hover:brightness-110 active:scale-[0.98] transition-all"
           >
             <Zap className="h-5 w-5" />
-            원클릭 자동 영상 제작
+            무료 브라우저 영상 만들기
           </Link>
           <Link
             href="/membership"
