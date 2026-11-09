@@ -178,7 +178,7 @@ export function HeroSection() {
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-7 py-3.5 text-base font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-800 active:scale-[0.98] transition-all"
           >
             <CreditCard className="h-5 w-5 text-amber-400" />
-            멤버십 플랜 (30/100/150회)
+            유료 멤버십 중지 · 무료 WebM만 제공
           </Link>
         </div>
       </div>
