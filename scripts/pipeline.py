@@ -345,17 +345,33 @@ async def run_pipeline(script, title="shorts", category="engineering", output_di
     sp = os.path.join(output_dir, f"{safe}_subs.srt")
     vp = os.path.join(output_dir, f"{safe}_final.mp4")
     vjp = os.path.join(output_dir, f"{safe}_viral_subs.json")
+    threeD_json = os.path.join(output_dir, f"{safe}_3d_scene.json")
 
-    print(f"\n[1/3] TTS 음성 생성 (어댑터)...", flush=True)
+    print(f"\n[1/4] TTS 음성 생성 (어댑터)...", flush=True)
     await generate_tts_adapter(script, ap, sp)
 
-    print("\n[2/3] 바이럴 자막 추출...", flush=True)
+    print("\n[2/4] 바이럴 자막 추출...", flush=True)
     raw = parse_subtitles(sp)
     viral = group_subtitles_viral(raw)
     with open(vjp, "w", encoding="utf-8") as f:
         json.dump([{"start": s, "end": e, "text": t} for s, e, t in viral], f, ensure_ascii=False, indent=2)
 
-    print("\n[3/3] 1080x1920 영상 렌더링...", flush=True)
+    print("\n[3/4] 3D 시각 자료 생성...", flush=True)
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from renderer_3d import create_mechanism_scene
+        scene_3d = create_mechanism_scene(title, category)
+        scene_3d.update(0, 0.016)
+        with open(threeD_json, "w", encoding="utf-8") as f:
+            json.dump(scene_3d.to_json(), f, ensure_ascii=False, indent=2)
+        print("[3/4] 3D 시각 자료 생성 완료", flush=True)
+    except Exception as e:
+        print(f"[3/4] 3D 시각 자료 생성 실패 (fallback): {e}", flush=True)
+        # 3D 생성 실패 시 빈 JSON 생성
+        with open(threeD_json, "w", encoding="utf-8") as f:
+            json.dump({"error": str(e)}, f, ensure_ascii=False)
+
+    print("\n[4/4] 1080x1920 영상 렌더링...", flush=True)
     compose_video(title, script, category, ap, sp, vp)
 
     from moviepy import AudioFileClip
@@ -370,6 +386,7 @@ async def run_pipeline(script, title="shorts", category="engineering", output_di
         "audio": ap,
         "subtitles": sp,
         "viral_subtitles": vjp,
+        "3d_scene": threeD_json,
         "video": vp,
         "duration_sec": total_time,
         "quality_passed": is_valid,

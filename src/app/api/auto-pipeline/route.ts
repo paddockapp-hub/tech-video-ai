@@ -7,6 +7,7 @@ import { OUTPUT_DIR, publicUrl } from "@/lib/paths";
 import { getCurrentUser } from "@/lib/auth";
 import { checkUserCredits, deductCredit, refundCredit } from "@/lib/credits";
 import { DB } from "@/lib/db";
+import { analyticsCollector } from "@/lib/analytics-collector";
 
 const execAsync = promisify(exec);
 
@@ -169,6 +170,32 @@ export async function POST(request: NextRequest) {
       status: "success",
       costEstimatedKRW: 12.6, // 상용 원가 정밀 산정치
     });
+
+    // 애널리틱스 자동 수집 (초기 데이터)
+    if (currentUser) {
+      analyticsCollector.recordAnalytics({
+        videoId: id,
+        userId: currentUser.id,
+        title: title || "shorts",
+        category: category || "engineering",
+        features: {
+          primaryColor: { r: 56, g: 189, b: 248 },
+          fontSize: 68,
+          animationSpeed: 1.0,
+          subtitleDuration: 2.5,
+        },
+        metrics: {
+          views: 0,
+          likes: 0,
+          comments: 0,
+          shares: 0,
+          watchTime: 0,
+          retention: 0,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    }
 
     return NextResponse.json({
       success: true,
