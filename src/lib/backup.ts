@@ -1,10 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { withProcessLock } from "./db";
-
-const DB_DIR = path.join(process.cwd(), "data", "db");
-const BACKUP_ROOT = path.join(process.cwd(), "data", "backups");
+import { withProcessLock, DB_DIR, BACKUP_DIR as BACKUP_ROOT } from "./db";
 
 export interface BackupMetadata {
   id: string;

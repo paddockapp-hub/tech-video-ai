@@ -114,9 +114,21 @@ export interface OpenAIIntegration {
   lastUsedAt: string;
 }
 
-const DB_DIR = path.join(process.cwd(), "data", "db");
-const LOCK_DIR = path.join(process.cwd(), "data", "locks");
-const BACKUP_DIR = path.join(process.cwd(), "data", "backups");
+// Vercel / AWS Lambda 등 서버리스 환경(Read-only root) 지원
+const isServerless = process.env.VERCEL === "1" || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+const SOURCE_DB_DIR = path.join(process.cwd(), "data", "db");
+
+export const DB_DIR = isServerless
+  ? path.join("/tmp", "shortsmaking_data", "db")
+  : path.join(process.cwd(), "data", "db");
+
+export const LOCK_DIR = isServerless
+  ? path.join("/tmp", "shortsmaking_data", "locks")
+  : path.join(process.cwd(), "data", "locks");
+
+export const BACKUP_DIR = isServerless
+  ? path.join("/tmp", "shortsmaking_data", "backups")
+  : path.join(process.cwd(), "data", "backups");
 
 function ensureDbDir() {
   if (!fs.existsSync(DB_DIR)) {
@@ -127,6 +139,23 @@ function ensureDbDir() {
   }
   if (!fs.existsSync(BACKUP_DIR)) {
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  }
+
+  // 서버리스 환경일 경우 프로젝트에 번들된 초기 시드 JSON 파일들을 /tmp로 초기 복사
+  if (isServerless && fs.existsSync(SOURCE_DB_DIR)) {
+    try {
+      const files = fs.readdirSync(SOURCE_DB_DIR);
+      for (const file of files) {
+        if (file.endsWith(".json")) {
+          const dest = path.join(DB_DIR, file);
+          if (!fs.existsSync(dest)) {
+            fs.copyFileSync(path.join(SOURCE_DB_DIR, file), dest);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[Serverless Seed Copy Warning]", e);
+    }
   }
 }
 
@@ -352,8 +381,8 @@ export const DB = {
       tierPricesKRW: {
         free: 0,
         basic: 29000,
-        standard: 79000,
-        premium: 119000,
+        standard: 44900,
+        premium: 79000,
       },
       creditPackages: [
         {

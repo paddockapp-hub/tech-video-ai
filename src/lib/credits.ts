@@ -1,4 +1,4 @@
-import { DB, User } from "./db";
+import { DB, User, DB_DIR } from "./db";
 import fs from "fs";
 import path from "path";
 
@@ -21,7 +21,7 @@ export interface CreditTransaction {
   timestamp: string;
 }
 
-const TX_LOG_FILE = path.join(process.cwd(), "data", "db", "credit_transactions.json");
+const TX_LOG_FILE = path.join(DB_DIR, "credit_transactions.json");
 
 function getTransactions(): CreditTransaction[] {
   try {

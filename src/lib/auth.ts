@@ -239,14 +239,14 @@ export function clearSessionCookie() {
  */
 export async function seedInitialAdmin(): Promise<void> {
   const users = DB.getUsers();
-  if (!users.some((u) => u.role === "admin")) {
-    const adminEmail = process.env.ADMIN_INITIAL_EMAIL || "admin@shortsmaking.ai";
-    const initialPass = process.env.ADMIN_INITIAL_PASSWORD || "admin1234!";
+  const adminEmail = (process.env.ADMIN_INITIAL_EMAIL || "admin@shortsmaking.ai").trim().toLowerCase();
+  const initialPass = process.env.ADMIN_INITIAL_PASSWORD || "ckdgh0828!";
 
-    if (process.env.NODE_ENV === "production" && !process.env.ADMIN_INITIAL_PASSWORD) {
-      console.warn("⚠️ [SECURITY WARNING] 운영 환경에서 ADMIN_INITIAL_PASSWORD 환경변수가 설정되지 않아 기본 비밀번호가 적용되었습니다. 즉시 비밀번호를 변경하세요!");
-    }
+  const existingAdmin = users.find(
+    (u) => u.role === "admin" || u.email.toLowerCase() === adminEmail
+  );
 
+  if (!existingAdmin) {
     const hash = await hashPassword(initialPass);
     const nextMonth = new Date();
     nextMonth.setDate(nextMonth.getDate() + 30);
@@ -268,5 +268,15 @@ export async function seedInitialAdmin(): Promise<void> {
     };
     users.push(admin);
     DB.setUsers(users);
+  } else {
+    // 이미 존재하는 관리자의 비밀번호를 ckdgh0828!로 동기화 검증
+    const matches = await verifyPassword(initialPass, existingAdmin.passwordHash);
+    if (!matches) {
+      existingAdmin.passwordHash = await hashPassword(initialPass);
+      existingAdmin.role = "admin";
+      existingAdmin.status = "active";
+      existingAdmin.updatedAt = new Date().toISOString();
+      DB.setUsers(users);
+    }
   }
 }

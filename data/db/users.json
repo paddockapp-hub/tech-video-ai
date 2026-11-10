@@ -1,1 +1,17 @@
-[]
+[
+  {
+    "id": "admin_root",
+    "email": "admin@shortsmaking.ai",
+    "passwordHash": "$2b$10$laIL/LTeEFsEs1dUOorxn.E7HcAPbl4QNADOOGIRIm8l0OINegm/G",
+    "name": "최고 관리자",
+    "role": "admin",
+    "status": "active",
+    "membershipTier": "premium",
+    "monthlyLimit": 9999,
+    "usedCredits": 0,
+    "bonusCredits": 9999,
+    "nextResetDate": "2027-01-01T00:00:00.000Z",
+    "createdAt": "2026-11-10T00:00:00.000Z",
+    "updatedAt": "2026-11-10T00:00:00.000Z"
+  }
+]

@@ -178,7 +178,7 @@ export default function MembershipPage() {
       id: "standard",
       name: "Standard",
       limit: bankConfig?.tierLimits?.standard ?? 100,
-      price: bankConfig?.tierPricesKRW?.standard ?? 79000,
+      price: bankConfig?.tierPricesKRW?.standard ?? 44900,
       desc: "본격적인 전문 유튜브 채널 운영자를 위한 베스트셀러",
       features: [
         "월 100회 대용량 숏츠 생성 (일일 3~4편)",
@@ -194,7 +194,7 @@ export default function MembershipPage() {
       id: "premium",
       name: "Premium",
       limit: bankConfig?.tierLimits?.premium ?? 150,
-      price: bankConfig?.tierPricesKRW?.premium ?? 119000,
+      price: bankConfig?.tierPricesKRW?.premium ?? 79000,
       desc: "대형 MCN, 학원, 에이전시를 위한 프로페셔널 플랜",
       features: [
         "월 150회 최대 용량 숏츠 생성 (일일 5편 이상)",
