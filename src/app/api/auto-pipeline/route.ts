@@ -8,6 +8,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { checkUserCredits, deductCredit, refundCredit } from "@/lib/credits";
 import { DB } from "@/lib/db";
 import { analyticsCollector } from "@/lib/analytics-collector";
+import { viralModel } from "@/lib/viral-predictor";
 
 const execAsync = promisify(exec);
 
@@ -34,6 +35,9 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const { script, title, category, subcategory, jobId } = body;
+
+  // 바이럴 AI 모델로 최적 특징 추천
+  const viralFeatures = viralModel.recommendFeatures(category || "engineering", script || "");
 
   // jobId 생성 시 사용자 ID 포함 (멱등성 강화)
   const id = jobId || (currentUser ? `${currentUser.id}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}` : `guest_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`);
@@ -124,6 +128,7 @@ export async function POST(request: NextRequest) {
       category: category || "engineering",
       subcategory: subcategory || "",
       output_dir: outputDir,
+      viral_features: viralFeatures,
     });
 
     // Windows 환경 파이썬 스크립트 실행 (180초 타임아웃)

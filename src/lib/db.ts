@@ -57,6 +57,13 @@ export interface SystemConfig {
   allowAutoBankTransfer: boolean;
   tierLimits: Record<MembershipTier, number>;
   tierPricesKRW: Record<MembershipTier, number>;
+  creditPackages: Array<{
+    id: string;
+    name: string;
+    credits: number;
+    priceKRW: number;
+    discountPercent?: number;
+  }>;
   updatedAt: string;
 }
 
@@ -83,6 +90,28 @@ export interface VideoGenerationLog {
   error?: string;
   costEstimatedKRW: number;
   createdAt: string;
+}
+
+export interface CreditPurchase {
+  id: string;
+  userId: string;
+  packageId: string;
+  credits: number;
+  priceKRW: number;
+  paymentMethod: "toss" | "gpt" | "card";
+  status: "pending" | "completed" | "failed";
+  createdAt: string;
+  completedAt?: string;
+  tossTransferId?: string;
+  gptTransactionId?: string;
+}
+
+export interface OpenAIIntegration {
+  userId: string;
+  apiKey: string;
+  balanceCredits: number;
+  linkedAt: string;
+  lastUsedAt: string;
 }
 
 const DB_DIR = path.join(process.cwd(), "data", "db");
@@ -326,6 +355,29 @@ export const DB = {
         standard: 79000,
         premium: 119000,
       },
+      creditPackages: [
+        {
+          id: "pkg_10_3500",
+          name: "10회 패키지",
+          credits: 10,
+          priceKRW: 3500,
+          discountPercent: 0,
+        },
+        {
+          id: "pkg_30_10000",
+          name: "30회 패키지",
+          credits: 30,
+          priceKRW: 10000,
+          discountPercent: 5,
+        },
+        {
+          id: "pkg_100_30000",
+          name: "100회 패키지",
+          credits: 100,
+          priceKRW: 30000,
+          discountPercent: 14,
+        },
+      ],
       updatedAt: new Date().toISOString(),
     }),
   setConfig: (config: SystemConfig): void => writeAtomicJson("config.json", config),
@@ -356,6 +408,45 @@ export const DB = {
     };
     list.unshift(entry);
     writeAtomicJson("video_logs.json", list.slice(0, 2000));
+    return entry;
+  },
+
+  getCreditPurchases: (): CreditPurchase[] =>
+    readJson<CreditPurchase[]>("credit_purchases.json", []),
+  addCreditPurchase: (
+    purchase: Omit<CreditPurchase, "id" | "createdAt">
+  ): CreditPurchase => {
+    const list = DB.getCreditPurchases();
+    const entry: CreditPurchase = {
+      ...purchase,
+      id: "cp_" + Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
+      createdAt: new Date().toISOString(),
+    };
+    list.unshift(entry);
+    writeAtomicJson("credit_purchases.json", list.slice(0, 1000));
+    return entry;
+  },
+
+  getOpenAIIntegrations: (): OpenAIIntegration[] =>
+    readJson<OpenAIIntegration[]>("openai_integrations.json", []),
+  setOpenAIIntegrations: (integrations: OpenAIIntegration[]): void =>
+    writeAtomicJson("openai_integrations.json", integrations),
+  addOpenAIIntegration: (
+    integration: Omit<OpenAIIntegration, "linkedAt" | "lastUsedAt">
+  ): OpenAIIntegration => {
+    const list = DB.getOpenAIIntegrations();
+    const entry: OpenAIIntegration = {
+      ...integration,
+      linkedAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+    };
+    const existingIdx = list.findIndex((i) => i.userId === integration.userId);
+    if (existingIdx !== -1) {
+      list[existingIdx] = entry;
+    } else {
+      list.push(entry);
+    }
+    writeAtomicJson("openai_integrations.json", list);
     return entry;
   },
 

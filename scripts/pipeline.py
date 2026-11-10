@@ -148,9 +148,9 @@ def group_subtitles_viral(entries, max_chars=14):
 
     return grouped
 
-def compose_video(title, script, category, audio_path, subs_path, output_path, width=1080, height=1920, fps=30):
+def compose_video(title, script, category, audio_path, subs_path, output_path, width=1080, height=1920, fps=30, viral_features=None):
     import numpy as np
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
     from moviepy import AudioFileClip, VideoClip
     try:
         import imageio_ffmpeg
@@ -182,7 +182,7 @@ def compose_video(title, script, category, audio_path, subs_path, output_path, w
         if os.path.exists(fp):
             try:
                 title_font = ImageFont.truetype(fp, 52)
-                sub_font = ImageFont.truetype(fp, 68)
+                sub_font = ImageFont.truetype(fp, font_size)
                 body_font = ImageFont.truetype(fp, 44)
                 badge_font = ImageFont.truetype(fp, 32)
                 break
@@ -190,13 +190,32 @@ def compose_video(title, script, category, audio_path, subs_path, output_path, w
                 continue
 
     is_eng = category.lower() == "engineering"
-    primary_color = (56, 189, 248) if is_eng else (251, 191, 36)
+
+    # 바이럴 AI 특징 적용
+    if viral_features:
+        primary_color = (
+            viral_features.get('primaryColor', {}).get('r', 56),
+            viral_features.get('primaryColor', {}).get('g', 189),
+            viral_features.get('primaryColor', {}).get('b', 248)
+        )
+        secondary_color = (
+            viral_features.get('secondaryColor', {}).get('r', 100),
+            viral_features.get('secondaryColor', {}).get('g', 200),
+            viral_features.get('secondaryColor', {}).get('b', 255)
+        )
+        font_size = viral_features.get('fontSize', 68)
+        animation_speed = viral_features.get('animationSpeed', 1.0)
+    else:
+        primary_color = (56, 189, 248) if is_eng else (251, 191, 36)
+        secondary_color = (100, 200, 255) if is_eng else (255, 220, 100)
+        font_size = 68
+        animation_speed = 1.0
 
     def make_frame(t):
         img = Image.new("RGB", (width, height), (10, 14, 26))
         draw = ImageDraw.Draw(img)
 
-        # 1. 배경 그라데이션 및 그리드
+        # 1. 배경 그라데이션 및 그리드 (3D 깊이감)
         for yp in range(0, height, 8):
             ratio = yp / height
             r = int(8 + 14 * ratio)
@@ -204,14 +223,20 @@ def compose_video(title, script, category, audio_path, subs_path, output_path, w
             b = int(24 + 36 * ratio)
             draw.line([(0, yp), (width, yp)], fill=(r, g, b), width=8)
 
+        # 3D 효과 그리드 (원근법)
+        grid_offset_x = math.sin(t * 0.5) * 30
         for x in range(0, width, 120):
-            draw.line([(x, 0), (x, height)], fill=(30, 41, 59), width=1)
+            adjusted_x = x + grid_offset_x * (x / width)
+            draw.line([(adjusted_x, 0), (adjusted_x, height)], fill=(30, 41, 59), width=1)
         for y in range(0, height, 120):
             draw.line([(0, y), (width, y)], fill=(30, 41, 59), width=1)
 
-        # 2. 상단 헤더
+        # 2. 상단 헤더 (3D 그림자 효과)
         badge_text = "공학 메커니즘" if is_eng else "고등·대학 심화 탐구"
         bx, by = 60, 140
+        # 그림자
+        draw.rounded_rectangle([bx+5, by+5, bx + 285, by + 61], radius=28, fill=(0, 0, 0, 100))
+        # 본체
         draw.rounded_rectangle([bx, by, bx + 280, by + 56], radius=28, fill=(30, 41, 59, 220), outline=primary_color, width=2)
         if badge_font:
             draw.text((bx + 28, by + 10), badge_text, font=badge_font, fill=primary_color)
@@ -220,27 +245,41 @@ def compose_video(title, script, category, audio_path, subs_path, output_path, w
             draw.text((60, 220), title[:22], font=title_font, fill=(255, 255, 255))
             draw.line([(60, 290), (width - 60, 290)], fill=(71, 85, 105), width=2)
 
-        # 3. 중앙 모션 메커니즘
+        # 3. 중앙 3D 모션 메커니즘 (고도화)
         cx, cy = width // 2, int(height * 0.46)
         orbit_radius = 240
 
-        angle1 = t * 1.5
+        # 3D 원근법 효과를 위한 스케일링
+        perspective_scale = 1 + 0.1 * math.sin(t * 0.8 * animation_speed)
+        current_radius = orbit_radius * perspective_scale
+
+        # 회전하는 궤도 입자들 (3D 느낌)
+        angle1 = t * 1.5 * animation_speed
         for i in range(12):
             th = angle1 + (i * math.pi / 6)
-            px = int(cx + orbit_radius * math.cos(th))
-            py = int(cy + orbit_radius * math.sin(th))
-            draw.ellipse([px-8, py-8, px+8, py+8], fill=primary_color)
+            # 3D 원근법: 더 가까운 입자는 더 크게
+            depth = math.sin(th + t)
+            size_factor = 1 + depth * 0.3
+            px = int(cx + current_radius * math.cos(th))
+            py = int(cy + current_radius * math.sin(th) * 0.6)  # 타원으로 3D 느낌
+            particle_size = int(8 * size_factor)
+            draw.ellipse([px-particle_size, py-particle_size, px+particle_size, py+particle_size], fill=primary_color)
 
+        # 3D 구형들 (라이팅 효과)
         draw.ellipse([cx-150, cy-150, cx+150, cy+150], outline=(100, 116, 139), width=2)
         draw.ellipse([cx-90, cy-90, cx+90, cy+90], outline=primary_color, width=3)
         draw.ellipse([cx-20, cy-20, cx+20, cy+20], fill=primary_color)
 
-        beam_angle = t * 2.8
-        bx_end = cx + int(150 * math.cos(beam_angle))
-        by_end = cy + int(150 * math.sin(beam_angle))
-        draw.line([(cx, cy), (bx_end, by_end)], fill=primary_color, width=3)
+        # 빔 라인 (광선 효과)
+        beam_angle = t * 2.8 * animation_speed
+        for i in range(3):
+            beam_offset = i * 0.3
+            bx_end = cx + int(150 * math.cos(beam_angle + beam_offset))
+            by_end = cy + int(150 * math.sin(beam_angle + beam_offset))
+            beam_alpha = int(255 * (1 - i * 0.3))
+            draw.line([(cx, cy), (bx_end, by_end)], fill=primary_color, width=3 - i)
 
-        # 4. 설명 문장
+        # 4. 설명 문장 (글로우 효과)
         if sentences and duration > 0 and body_font:
             idx = min(int(t / duration * len(sentences)), len(sentences) - 1)
             current_sent = sentences[idx]
@@ -252,10 +291,11 @@ def compose_video(title, script, category, audio_path, subs_path, output_path, w
                 tw = bbox[2] - bbox[0]
                 tx = (width - tw) // 2
                 ty = box_top + li * 56
+                # 글로우 효과
                 draw.text((tx+2, ty+2), line, font=body_font, fill=(0, 0, 0))
                 draw.text((tx, ty), line, font=body_font, fill=(226, 232, 240))
 
-        # 5. 바이럴 자막
+        # 5. 바이럴 자막 (3D 박스 효과)
         if sub_font:
             for s, e, stxt in viral_subs:
                 if s <= t <= e:
@@ -265,6 +305,13 @@ def compose_video(title, script, category, audio_path, subs_path, output_path, w
                     tx = (width - tw) // 2
                     ty = int(height * 0.78)
                     pad_x, pad_y = 36, 20
+
+                    # 3D 박스 효과 (그림자 + 레이어)
+                    draw.rounded_rectangle(
+                        [tx - pad_x + 5, ty - pad_y + 5, tx + tw + pad_x + 5, ty + th + pad_y + 5],
+                        radius=20,
+                        fill=(0, 0, 0, 80)
+                    )
                     draw.rounded_rectangle(
                         [tx - pad_x, ty - pad_y, tx + tw + pad_x, ty + th + pad_y],
                         radius=20,
@@ -275,10 +322,16 @@ def compose_video(title, script, category, audio_path, subs_path, output_path, w
                     draw.text((tx, ty), stxt, font=sub_font, fill=(255, 255, 255))
                     break
 
-        # 6. 프로그레스 바
+        # 6. 프로그레스 바 (그라데이션)
         progress = t / duration if duration > 0 else 0
         bar_w = int(width * progress)
-        draw.rectangle([(0, height - 12), (bar_w, height)], fill=primary_color)
+        # 그라데이션 효과
+        for i in range(bar_w):
+            ratio = i / bar_w if bar_w > 0 else 0
+            r = int(primary_color[0] * ratio)
+            g = int(primary_color[1] * ratio)
+            b = int(primary_color[2] * ratio)
+            draw.rectangle([(i, height - 12), (i + 1, height)], fill=(r, g, b))
 
         return np.array(img)
 
@@ -337,7 +390,7 @@ def verify_video_quality(video_path, expected_duration, min_size_kb=200):
     except Exception as e:
         return False, f"영상 무결성 검증 실패: {str(e)}"
 
-async def run_pipeline(script, title="shorts", category="engineering", output_dir="."):
+async def run_pipeline(script, title="shorts", category="engineering", output_dir=".", viral_features=None):
     t0 = time.time()
     os.makedirs(output_dir, exist_ok=True)
     safe = re.sub(r'[^\w가-힣]', '_', title)[:30]
@@ -346,6 +399,10 @@ async def run_pipeline(script, title="shorts", category="engineering", output_di
     vp = os.path.join(output_dir, f"{safe}_final.mp4")
     vjp = os.path.join(output_dir, f"{safe}_viral_subs.json")
     threeD_json = os.path.join(output_dir, f"{safe}_3d_scene.json")
+
+    # 바이럴 특징 적용
+    if viral_features:
+        print(f"[Pipeline] 바이럴 AI 특징 적용: {viral_features.get('primaryColor')}", flush=True)
 
     print(f"\n[1/4] TTS 음성 생성 (어댑터)...", flush=True)
     await generate_tts_adapter(script, ap, sp)
@@ -372,7 +429,7 @@ async def run_pipeline(script, title="shorts", category="engineering", output_di
             json.dump({"error": str(e)}, f, ensure_ascii=False)
 
     print("\n[4/4] 1080x1920 영상 렌더링...", flush=True)
-    compose_video(title, script, category, ap, sp, vp)
+    compose_video(title, script, category, ap, sp, vp, viral_features=viral_features)
 
     from moviepy import AudioFileClip
     ac = AudioFileClip(ap)
