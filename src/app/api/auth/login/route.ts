@@ -5,15 +5,31 @@ import {
   createSessionToken,
   setSessionCookie,
   seedInitialAdmin,
+  getClientIp,
+  checkIpRateLimit,
+  recordIpAttempt,
   checkLoginRateLimit,
   recordFailedLogin,
   resetLoginAttempts,
-  extractClientIP,
 } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
     await seedInitialAdmin();
+
+    const clientIp = getClientIp(req);
+
+    // 1. IP 기준 글로벌 Rate Limit 검사 (분당 30회 초과 시 5분 차단)
+    const ipLimit = checkIpRateLimit(clientIp);
+    if (!ipLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: `동일 IP에서 과도한 요청이 발생하여 일시적으로 차단되었습니다. ${ipLimit.remainingSeconds}초 후에 다시 시도해주세요.`,
+        },
+        { status: 429 }
+      );
+    }
+    recordIpAttempt(clientIp);
 
     const body = await req.json();
     const { email, password } = body;
@@ -26,20 +42,13 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
-    const clientIP = extractClientIP(req.headers);
 
-    // Rate Limiting 체크 (이메일 + IP 기반 이중 제한)
-    const emailRateLimit = checkLoginRateLimit(`email:${cleanEmail}`);
-    const ipRateLimit = checkLoginRateLimit(`ip:${clientIP}`);
-
-    if (!emailRateLimit.allowed || !ipRateLimit.allowed) {
-      const remainingSeconds = Math.max(
-        emailRateLimit.remainingSeconds || 0,
-        ipRateLimit.remainingSeconds || 0
-      );
+    // 2. 이메일 기준 Brute-force 계정 잠금 검사 (5회 실패 시 15분 차단)
+    const emailLimit = checkLoginRateLimit(cleanEmail);
+    if (!emailLimit.allowed) {
       return NextResponse.json(
         {
-          error: `연속된 로그인 실패로 인해 계정이 일시적으로 보호됩니다. ${remainingSeconds}초 후에 다시 시도해주세요.`,
+          error: `연속된 로그인 실패로 인해 계정이 일시적으로 보호됩니다. ${emailLimit.remainingSeconds}초 후에 다시 시도해주세요.`,
         },
         { status: 429 }
       );
@@ -49,8 +58,7 @@ export async function POST(req: NextRequest) {
     const user = users.find((u) => u.email === cleanEmail);
 
     if (!user) {
-      recordFailedLogin(`email:${cleanEmail}`);
-      recordFailedLogin(`ip:${clientIP}`);
+      recordFailedLogin(cleanEmail);
       return NextResponse.json(
         { error: "가입되지 않은 이메일이거나 비밀번호가 올바르지 않습니다." },
         { status: 401 }
@@ -66,17 +74,15 @@ export async function POST(req: NextRequest) {
 
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
-      recordFailedLogin(`email:${cleanEmail}`);
-      recordFailedLogin(`ip:${clientIP}`);
+      recordFailedLogin(cleanEmail);
       return NextResponse.json(
         { error: "가입되지 않은 이메일이거나 비밀번호가 올바르지 않습니다." },
         { status: 401 }
       );
     }
 
-    // 로그인 성공 시 실패 기록 초기화
-    resetLoginAttempts(`email:${cleanEmail}`);
-    resetLoginAttempts(`ip:${clientIP}`);
+    // 로그인 성공 시 이메일 실패 기록 초기화
+    resetLoginAttempts(cleanEmail);
 
     const token = await createSessionToken({
       userId: user.id,

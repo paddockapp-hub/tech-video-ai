@@ -43,8 +43,8 @@ async function runAllTests() {
     DB.setUsers([...DB.getUsers(), u]);
 
     const [r1, r2] = await Promise.all([
-      deductCredit(userId, 1, "job_c2_1"),
-      deductCredit(userId, 1, "job_c2_2"),
+      deductCredit(userId, 1, `job_c2_1_${Date.now()}`),
+      deductCredit(userId, 1, `job_c2_2_${Date.now()}`),
     ]);
 
     const successes = [r1, r2].filter((r) => r.success).length;
@@ -134,7 +134,7 @@ async function runAllTests() {
     DB.setUsers([...DB.getUsers(), u]);
 
     const check = checkUserCredits(userId);
-    const deduct = await deductCredit(userId, 1, "job_c0_attempt");
+    const deduct = await deductCredit(userId, 1, `job_c0_attempt_${Date.now()}`);
     const passed = !check.allowed && !deduct.success;
 
     report.push({
@@ -173,7 +173,7 @@ async function runAllTests() {
     };
     DB.setUsers([...DB.getUsers(), u]);
 
-    const jobId = "job_unique_idem_100";
+    const jobId = "job_unique_idem_" + Date.now();
     // 첫 번째 호출
     const firstCall = await deductCredit(userId, 1, jobId);
     // 동일 jobId로 네트워크 재전송 시뮬레이션
@@ -252,7 +252,7 @@ async function runAllTests() {
   {
     const backupMeta = createBackup();
     const verifyResult = verifyBackup(backupMeta.id);
-    const restoreResult = restoreBackup(backupMeta.id);
+    const restoreResult = await restoreBackup(backupMeta.id);
 
     const passed = backupMeta.totalFiles > 0 && verifyResult.valid && restoreResult.success;
 

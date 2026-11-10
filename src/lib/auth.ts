@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
+import { NextRequest } from "next/server";
 import { DB, User } from "./db";
 
 const JWT_SECRET = new TextEncoder().encode(
@@ -17,48 +18,99 @@ export interface SessionPayload {
 }
 
 // ---------------------------------------------------------------------------
-// Brute-force 방어용 로그인 시도 관리 (이메일 + IP 기반 이중 Rate Limiter)
+// ③ Rate Limiter (IP 기반 글로벌 제한 + 이메일 기반 Brute-force 듀얼 레이어)
 // ---------------------------------------------------------------------------
 interface AttemptRecord {
   count: number;
   lockUntil: number;
 }
 
-const loginAttempts = new Map<string, AttemptRecord>();
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_TIME_MS = 15 * 60 * 1000; // 15분
+// 1) 이메일별 Brute-Force 기록 (특정 계정 공격 방어)
+const emailAttempts = new Map<string, AttemptRecord>();
+const MAX_EMAIL_ATTEMPTS = 5;
+const EMAIL_LOCKOUT_MS = 15 * 60 * 1000; // 15분
+
+// 2) IP별 스프레이/DDoS 공격 방어 (여러 이메일 무차별 대입 방어)
+interface IpWindowRecord {
+  count: number;
+  windowStart: number;
+  lockUntil: number;
+}
+const ipAttempts = new Map<string, IpWindowRecord>();
+const MAX_IP_ATTEMPTS_PER_MINUTE = 30; // 1분에 최대 30회 로그인 시도
+const IP_LOCKOUT_MS = 5 * 60 * 1000; // 5분 차단
 
 /**
- * 신뢰할 수 있는 IP 주소 추출 (프록시 헤더 고려)
- * X-Forwarded-For → X-Real-IP → req.socket.remoteAddress 순서로 확인
+ * 프록시 헤더(Cloudflare, Nginx, ALB 등) 안전 파싱하여 클라이언트 실제 IP 추출
  */
-export function extractClientIP(headers: Headers): string {
-  // X-Forwarded-For의 첫 번째 IP가 실제 클라이언트 IP (프록시 체인에서 가장 왼쪽)
-  const xff = headers.get('x-forwarded-for');
-  if (xff) {
-    const ips = xff.split(',').map(ip => ip.trim());
-    if (ips.length > 0) {
-      return ips[0];
-    }
-  }
+export const extractClientIP = getClientIp;
 
-  // X-Real-IP 헤더 (Nginx 등에서 사용)
-  const xri = headers.get('x-real-ip');
-  if (xri) {
-    return xri;
+export function getClientIp(req: NextRequest | Headers): string {
+  const headers = "headers" in req ? req.headers : req;
+  const forwarded = headers.get("x-forwarded-for");
+  if (forwarded) {
+    const firstIp = forwarded.split(",")[0].trim();
+    if (firstIp) return firstIp;
   }
+  const cfIp = headers.get("cf-connecting-ip");
+  if (cfIp) return cfIp.trim();
 
-  // CF-Connecting-IP (Cloudflare)
-  const cfip = headers.get('cf-connecting-ip');
-  if (cfip) {
-    return cfip;
-  }
+  const realIp = headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
 
-  return 'unknown';
+  return "127.0.0.1";
 }
 
-export function checkLoginRateLimit(identifier: string): { allowed: boolean; remainingSeconds?: number } {
-  const record = loginAttempts.get(identifier);
+/**
+ * IP 기준 글로벌 레이트 리밋 검사
+ */
+export function checkIpRateLimit(ip: string): { allowed: boolean; remainingSeconds?: number } {
+  const now = Date.now();
+  const record = ipAttempts.get(ip);
+  if (!record) return { allowed: true };
+
+  if (record.lockUntil > now) {
+    return {
+      allowed: false,
+      remainingSeconds: Math.ceil((record.lockUntil - now) / 1000),
+    };
+  }
+
+  // 1분 윈도우 만료 시 리셋
+  if (now - record.windowStart > 60000) {
+    ipAttempts.delete(ip);
+    return { allowed: true };
+  }
+
+  if (record.count >= MAX_IP_ATTEMPTS_PER_MINUTE) {
+    record.lockUntil = now + IP_LOCKOUT_MS;
+    ipAttempts.set(ip, record);
+    return {
+      allowed: false,
+      remainingSeconds: Math.ceil(IP_LOCKOUT_MS / 1000),
+    };
+  }
+
+  return { allowed: true };
+}
+
+export function recordIpAttempt(ip: string): void {
+  const now = Date.now();
+  const record = ipAttempts.get(ip) || { count: 0, windowStart: now, lockUntil: 0 };
+  if (now - record.windowStart > 60000) {
+    record.count = 1;
+    record.windowStart = now;
+  } else {
+    record.count += 1;
+  }
+  ipAttempts.set(ip, record);
+}
+
+/**
+ * 이메일 기준 Brute-force 검사
+ */
+export function checkLoginRateLimit(email: string): { allowed: boolean; remainingSeconds?: number } {
+  const record = emailAttempts.get(email);
   if (!record) return { allowed: true };
 
   const now = Date.now();
@@ -69,26 +121,25 @@ export function checkLoginRateLimit(identifier: string): { allowed: boolean; rem
     };
   }
 
-  // 락아웃 해제 후 리셋
-  if (record.lockUntil <= now && record.count >= MAX_FAILED_ATTEMPTS) {
-    loginAttempts.delete(identifier);
+  if (record.lockUntil <= now && record.count >= MAX_EMAIL_ATTEMPTS) {
+    emailAttempts.delete(email);
   }
 
   return { allowed: true };
 }
 
-export function recordFailedLogin(identifier: string): void {
+export function recordFailedLogin(email: string): void {
   const now = Date.now();
-  const record = loginAttempts.get(identifier) || { count: 0, lockUntil: 0 };
+  const record = emailAttempts.get(email) || { count: 0, lockUntil: 0 };
   record.count += 1;
-  if (record.count >= MAX_FAILED_ATTEMPTS) {
-    record.lockUntil = now + LOCKOUT_TIME_MS;
+  if (record.count >= MAX_EMAIL_ATTEMPTS) {
+    record.lockUntil = now + EMAIL_LOCKOUT_MS;
   }
-  loginAttempts.set(identifier, record);
+  emailAttempts.set(email, record);
 }
 
-export function resetLoginAttempts(identifier: string): void {
-  loginAttempts.delete(identifier);
+export function resetLoginAttempts(email: string): void {
+  emailAttempts.delete(email);
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +236,6 @@ export function clearSessionCookie() {
 
 /**
  * 기본 관리자 계정 시딩
- * 환경변수 ADMIN_INITIAL_PASSWORD, ADMIN_INITIAL_EMAIL 우선 적용
  */
 export async function seedInitialAdmin(): Promise<void> {
   const users = DB.getUsers();

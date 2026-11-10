@@ -1,4 +1,6 @@
 import { DB, User } from "./db";
+import fs from "fs";
+import path from "path";
 
 export interface CreditCheckResult {
   allowed: boolean;
@@ -18,12 +20,6 @@ export interface CreditTransaction {
   reason: string;
   timestamp: string;
 }
-
-// ---------------------------------------------------------------------------
-// 멱등성 보장을 위한 크레딧 트랜잭션 로그
-// ---------------------------------------------------------------------------
-import fs from "fs";
-import path from "path";
 
 const TX_LOG_FILE = path.join(process.cwd(), "data", "db", "credit_transactions.json");
 
@@ -107,16 +103,27 @@ export function checkUserCredits(userId: string): CreditCheckResult {
 }
 
 /**
- * 원자적 크레딧 차감 (Idempotent by jobId)
+ * 원자적 크레딧 차감 (사용자 ID와 작업 ID 복합 키 검증 & 멱등성 보장)
  */
 export async function deductCredit(
   userId: string,
   amount: number = 1,
   jobId?: string
 ): Promise<{ success: boolean; error?: string; remainingCredits?: number }> {
-  // 멱등성 검사: 동일 jobId로 이미 차감된 이력이 있는지 확인
+  // ④ 멱등성 및 IDOR 방어: 다른 사용자의 jobId 도용 차단
   if (jobId) {
-    const existing = getTransactions().find(
+    const allTx = getTransactions();
+    const anyOwner = allTx.find((t) => t.jobId === jobId);
+
+    if (anyOwner && anyOwner.userId !== userId) {
+      return {
+        success: false,
+        error: "해당 작업 ID에 대한 접근 권한이 없습니다. (다른 사용자의 작업 ID)",
+      };
+    }
+
+    // 동일 사용자의 동일 jobId 재요청인 경우 멱등하게 승인 처리
+    const existing = allTx.find(
       (t) => t.jobId === jobId && t.userId === userId && t.type === "deduct"
     );
     if (existing) {
@@ -174,7 +181,7 @@ export async function deductCredit(
 }
 
 /**
- * 원자적 크레딧 환불 (Idempotent by jobId)
+ * 원자적 크레딧 환불 (사용자 ID와 작업 ID 복합 키 검증 & 멱등성 보장)
  */
 export async function refundCredit(
   userId: string,
@@ -182,12 +189,34 @@ export async function refundCredit(
   reason: string = "생성 실패로 인한 크레딧 자동 환불",
   jobId?: string
 ): Promise<{ success: boolean; error?: string; remainingCredits?: number }> {
-  // 멱등성 검사: 동일 jobId로 이미 환불되었는지 확인
+  // ④ 멱등성 및 IDOR 방어: 다른 사용자의 jobId 도용 차단 및 차감 이력 확인
   if (jobId) {
-    const existing = getTransactions().find(
+    const allTx = getTransactions();
+    const anyOwner = allTx.find((t) => t.jobId === jobId);
+
+    if (anyOwner && anyOwner.userId !== userId) {
+      return {
+        success: false,
+        error: "해당 작업 ID에 대한 환불 권한이 없습니다. (타인 작업)",
+      };
+    }
+
+    // 실제로 해당 사용자가 deduct한 이력이 있는지 확인 (허위 환불 방지)
+    const hasDeducted = allTx.some(
+      (t) => t.jobId === jobId && t.userId === userId && t.type === "deduct"
+    );
+    if (!hasDeducted) {
+      return {
+        success: false,
+        error: "크레딧 차감 이력이 없는 작업은 환불할 수 없습니다.",
+      };
+    }
+
+    // 이미 환불 완료된 작업인지 확인 (중복 환불 방지)
+    const existingRefund = allTx.find(
       (t) => t.jobId === jobId && t.userId === userId && t.type === "refund"
     );
-    if (existing) {
+    if (existingRefund) {
       const user = DB.getUsers().find((u) => u.id === userId);
       const rem = user ? Math.max(0, user.monthlyLimit - user.usedCredits) + user.bonusCredits : 0;
       return { success: true, remainingCredits: rem };
@@ -197,7 +226,7 @@ export async function refundCredit(
   return DB.updateUsersAtomic<{ success: boolean; error?: string; remainingCredits?: number }>((users) => {
     const userIndex = users.findIndex((u) => u.id === userId);
     if (userIndex === -1) {
-      return { users, result: { success: false } };
+      return { users, result: { success: false, error: "사용자를 찾을 수 없습니다." } };
     }
 
     const user = users[userIndex];

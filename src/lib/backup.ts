@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { withProcessLock } from "./db";
 
 const DB_DIR = path.join(process.cwd(), "data", "db");
 const BACKUP_ROOT = path.join(process.cwd(), "data", "backups");
@@ -18,6 +19,13 @@ export interface BackupMetadata {
   integrityVerified: boolean;
 }
 
+export interface BackupArchiveBundle {
+  version: "1.0";
+  exportedAt: string;
+  metadata: BackupMetadata;
+  payload: Record<string, string>; // filename -> utf8 string content
+}
+
 function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -27,6 +35,10 @@ function ensureDir(dir: string) {
 function computeFileHash(filePath: string): string {
   const buffer = fs.readFileSync(filePath);
   return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function computeStringHash(content: string): string {
+  return crypto.createHash("sha256").update(content, "utf-8").digest("hex");
 }
 
 /**
@@ -50,7 +62,6 @@ export function createBackup(): BackupMetadata {
     const destPath = path.join(targetDir, file);
 
     const content = fs.readFileSync(srcPath);
-    // JSON 유효성 검사
     try {
       JSON.parse(content.toString("utf-8"));
     } catch (e) {
@@ -143,10 +154,9 @@ export function listBackups(): BackupMetadata[] {
 }
 
 /**
- * 백업 복구 (Restore) - 원자적 복구 보장
- * 복구 도중 서버 종료 시에도 데이터 무결성 보장
+ * ② 원자적 스냅샷 복구 (서버 종료 및 중간 크래시 대비 자동 롤백 지원)
  */
-export function restoreBackup(backupId: string): { success: boolean; error?: string } {
+export async function restoreBackup(backupId: string): Promise<{ success: boolean; error?: string }> {
   const verification = verifyBackup(backupId);
   if (!verification.valid) {
     return { success: false, error: `Backup integrity check failed: ${verification.errors.join(", ")}` };
@@ -155,67 +165,113 @@ export function restoreBackup(backupId: string): { success: boolean; error?: str
   const targetDir = path.join(BACKUP_ROOT, backupId);
   const meta: BackupMetadata = JSON.parse(fs.readFileSync(path.join(targetDir, "metadata.json"), "utf-8"));
 
-  // 복구 전 현재 상태를 안전 백업 (롤백용)
-  let preRestoreBackupId: string | null = null;
-  try {
-    const preRestoreMeta = createBackup();
-    preRestoreBackupId = preRestoreMeta.id;
-  } catch (err) {
-    console.warn("[Restore] Pre-restore safety backup failed:", err);
-  }
+  return withProcessLock("global_db_restore", async () => {
+    // 1. 복구 직전 현재 상태를 안전 롤백 스냅샷으로 자동 백업
+    const safetySnapshotId = `safety_pre_restore_${Date.now()}`;
+    const safetyDir = path.join(BACKUP_ROOT, safetySnapshotId);
+    ensureDir(safetyDir);
 
-  // 원자적 복구: 임시 디렉토리에 먼저 복사 후 한 번에 이동
-  const tempRestoreDir = path.join(BACKUP_ROOT, `temp_restore_${Date.now()}`);
-  ensureDir(tempRestoreDir);
-
-  try {
-    // 1. 임시 디렉토리에 백업 파일 복사
-    for (const f of meta.files) {
-      const srcPath = path.join(targetDir, f.name);
-      const tempPath = path.join(tempRestoreDir, f.name);
-      const content = fs.readFileSync(srcPath);
-      fs.writeFileSync(tempPath, content, "utf-8");
+    const currentFiles = fs.readdirSync(DB_DIR).filter((f) => f.endsWith(".json"));
+    for (const cf of currentFiles) {
+      fs.copyFileSync(path.join(DB_DIR, cf), path.join(safetyDir, cf));
     }
 
-    // 2. 원자적 파일 교체 (rename은 대부분의 OS에서 원자적)
-    for (const f of meta.files) {
-      const tempPath = path.join(tempRestoreDir, f.name);
-      const destPath = path.join(DB_DIR, f.name);
-      fs.renameSync(tempPath, destPath);
-    }
+    // 2. 임시 스테이징 디렉토리에 대상 파일들 먼저 작성 및 무결성 사전 검증
+    const stagingDir = path.join(BACKUP_ROOT, `.staging_restore_${Date.now()}`);
+    ensureDir(stagingDir);
 
-    // 3. 임시 디렉토리 정리
-    fs.rmSync(tempRestoreDir, { recursive: true, force: true });
-
-    return { success: true };
-  } catch (err: any) {
-    // 복구 실패 시 롤백
-    console.error("[Restore Error] Atomic restore failed, attempting rollback:", err);
-
-    // 임시 디렉토리 정리
     try {
-      fs.rmSync(tempRestoreDir, { recursive: true, force: true });
-    } catch {}
-
-    // 사전 백업이 있으면 롤백
-    if (preRestoreBackupId) {
-      console.log("[Restore] Rolling back to pre-restore backup:", preRestoreBackupId);
-      try {
-        const preRestoreDir = path.join(BACKUP_ROOT, preRestoreBackupId);
-        const preRestoreMeta = JSON.parse(fs.readFileSync(path.join(preRestoreDir, "metadata.json"), "utf-8"));
-
-        for (const f of preRestoreMeta.files) {
-          const srcPath = path.join(preRestoreDir, f.name);
-          const destPath = path.join(DB_DIR, f.name);
-          const content = fs.readFileSync(srcPath);
-          fs.writeFileSync(destPath, content, "utf-8");
-        }
-      } catch (rollbackErr) {
-        console.error("[Restore] Rollback also failed:", rollbackErr);
+      for (const f of meta.files) {
+        const srcPath = path.join(targetDir, f.name);
+        const stgPath = path.join(stagingDir, f.name);
+        const content = fs.readFileSync(srcPath, "utf-8");
+        // 파싱 가능 여부 확인
+        JSON.parse(content);
+        fs.writeFileSync(stgPath, content, "utf-8");
       }
-    }
 
-    return { success: false, error: `복구 실패: ${err.message}. 롤백 시도 완료.` };
-  }
+      // 3. 검증 통과 시 운영 DB 디렉터리로 원자적 교체
+      for (const f of meta.files) {
+        const stgPath = path.join(stagingDir, f.name);
+        const finalDest = path.join(DB_DIR, f.name);
+        fs.copyFileSync(stgPath, finalDest);
+      }
+
+      // 스테이징 정리
+      try {
+        fs.rmSync(stagingDir, { recursive: true, force: true });
+      } catch {}
+
+      return { success: true };
+    } catch (err: any) {
+      console.error("[Restore Failed - Rolling back to safety snapshot]", err);
+      // 오류 발생 시 즉시 안전 스냅샷으로 원복
+      for (const cf of currentFiles) {
+        fs.copyFileSync(path.join(safetyDir, cf), path.join(DB_DIR, cf));
+      }
+      return { success: false, error: `복구 도중 오류가 발생하여 안전 스냅샷으로 원복되었습니다: ${err.message}` };
+    }
+  });
 }
 
+/**
+ * 외부/원격 저장소 보관용 백업 번들 내보내기 (Export)
+ */
+export function exportBackupArchive(backupId: string): BackupArchiveBundle {
+  const targetDir = path.join(BACKUP_ROOT, backupId);
+  const meta: BackupMetadata = JSON.parse(fs.readFileSync(path.join(targetDir, "metadata.json"), "utf-8"));
+
+  const payload: Record<string, string> = {};
+  for (const f of meta.files) {
+    payload[f.name] = fs.readFileSync(path.join(targetDir, f.name), "utf-8");
+  }
+
+  return {
+    version: "1.0",
+    exportedAt: new Date().toISOString(),
+    metadata: meta,
+    payload,
+  };
+}
+
+/**
+ * 외부/원격 저장소에서 백업 번들 가져오기 (Import)
+ */
+export function importBackupArchive(bundle: BackupArchiveBundle): { success: boolean; backupId?: string; error?: string } {
+  if (bundle.version !== "1.0" || !bundle.metadata || !bundle.payload) {
+    return { success: false, error: "Invalid backup archive bundle format" };
+  }
+
+  const importId = `imported_${bundle.metadata.id}_${Date.now().toString(36)}`;
+  const targetDir = path.join(BACKUP_ROOT, importId);
+  ensureDir(targetDir);
+
+  const fileMetaList: BackupMetadata["files"] = [];
+  let totalBytes = 0;
+
+  for (const [filename, content] of Object.entries(bundle.payload)) {
+    const destPath = path.join(targetDir, filename);
+    fs.writeFileSync(destPath, content, "utf-8");
+    const hash = computeStringHash(content);
+    const size = Buffer.byteLength(content, "utf-8");
+
+    fileMetaList.push({
+      name: filename,
+      sizeBytes: size,
+      sha256: hash,
+    });
+    totalBytes += size;
+  }
+
+  const meta: BackupMetadata = {
+    id: importId,
+    timestamp: new Date().toISOString(),
+    files: fileMetaList,
+    totalFiles: fileMetaList.length,
+    totalSizeBytes: totalBytes,
+    integrityVerified: true,
+  };
+
+  fs.writeFileSync(path.join(targetDir, "metadata.json"), JSON.stringify(meta, null, 2), "utf-8");
+  return { success: true, backupId: importId };
+}

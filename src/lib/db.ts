@@ -413,6 +413,8 @@ export const DB = {
 
   getCreditPurchases: (): CreditPurchase[] =>
     readJson<CreditPurchase[]>("credit_purchases.json", []),
+  setCreditPurchases: (purchases: CreditPurchase[]): void =>
+    writeAtomicJson("credit_purchases.json", purchases),
   addCreditPurchase: (
     purchase: Omit<CreditPurchase, "id" | "createdAt">
   ): CreditPurchase => {
