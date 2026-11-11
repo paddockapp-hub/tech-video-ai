@@ -94,9 +94,9 @@
     "id": "BACKUP_INTEGRITY_RESTORE",
     "name": "SHA-256 무결성 백업 생성 및 복원",
     "status": "PASS",
-    "details": "백업 생성(backup_2026-11-10T09-13-04-662Z, 파일 5개), SHA-256 체크섬 일치, 복원 성공",
+    "details": "백업 생성(backup_2026-11-10T14-45-29-906Z, 파일 5개), SHA-256 체크섬 일치, 복원 성공",
     "evidence": {
-      "backupId": "backup_2026-11-10T09-13-04-662Z",
+      "backupId": "backup_2026-11-10T14-45-29-906Z",
       "verifyResult": {
         "valid": true,
         "errors": []

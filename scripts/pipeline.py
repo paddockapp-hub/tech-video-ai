@@ -399,6 +399,7 @@ async def run_pipeline(script, title="shorts", category="engineering", output_di
     vp = os.path.join(output_dir, f"{safe}_final.mp4")
     vjp = os.path.join(output_dir, f"{safe}_viral_subs.json")
     threeD_json = os.path.join(output_dir, f"{safe}_3d_scene.json")
+    temp_vp = os.path.join(output_dir, f"{safe}_temp.mp4")
 
     # 바이럴 특징 적용
     if viral_features:
@@ -413,23 +414,63 @@ async def run_pipeline(script, title="shorts", category="engineering", output_di
     with open(vjp, "w", encoding="utf-8") as f:
         json.dump([{"start": s, "end": e, "text": t} for s, e, t in viral], f, ensure_ascii=False, indent=2)
 
-    print("\n[3/4] 3D 시각 자료 생성...", flush=True)
+    print("\n[3/4] 진짜 3D 영상 렌더링...", flush=True)
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from renderer_3d import create_mechanism_scene
-        scene_3d = create_mechanism_scene(title, category)
-        scene_3d.update(0, 0.016)
-        with open(threeD_json, "w", encoding="utf-8") as f:
-            json.dump(scene_3d.to_json(), f, ensure_ascii=False, indent=2)
-        print("[3/4] 3D 시각 자료 생성 완료", flush=True)
+        from renderer_3d_real import render_3d_scene
+        
+        # 3D 프레임 생성 (30fps)
+        fps = 30
+        frame_duration = 1 / fps
+        frames = []
+        
+        print(f"[3/4] 3D 프레임 생성 중... (총 {int(duration * fps)} 프레임)", flush=True)
+        for frame_idx in range(int(duration * fps)):
+            t = frame_idx * frame_duration
+            frame_array = render_3d_scene(1080, 1920, t, title, category)
+            frames.append(frame_array)
+            
+            if frame_idx % 10 == 0:
+                print(f"[3/4] 프레임 {frame_idx}/{int(duration * fps)} 생성 완료", flush=True)
+        
+        print("[3/4] 3D 프레임 생성 완료, 비디오 조합 중...", flush=True)
+        
+        # OpenCV로 비디오 조합
+        import cv2
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        video_writer = cv2.VideoWriter(temp_vp, fourcc, fps, (1080, 1920))
+        
+        for frame in frames:
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            video_writer.write(frame_bgr)
+        
+        video_writer.release()
+        print("[3/4] 3D 영상 렌더링 완료!", flush=True)
+        
     except Exception as e:
-        print(f"[3/4] 3D 시각 자료 생성 실패 (fallback): {e}", flush=True)
-        # 3D 생성 실패 시 빈 JSON 생성
-        with open(threeD_json, "w", encoding="utf-8") as f:
-            json.dump({"error": str(e)}, f, ensure_ascii=False)
+        print(f"[3/4] 3D 렌더링 실패, 2D fallback: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        # 3D 실패시 기존 2D 방식으로 렌더링
+        compose_video(title, script, category, ap, sp, vp, viral_features=viral_features)
 
-    print("\n[4/4] 1080x1920 영상 렌더링...", flush=True)
-    compose_video(title, script, category, ap, sp, vp, viral_features=viral_features)
+    print("\n[4/4] 오디오 추가 및 최종 검증...", flush=True)
+    
+    # 오디오 추가
+    from moviepy import AudioFileClip, VideoFileClip
+    audio = AudioFileClip(ap)
+    video = VideoFileClip(temp_vp)
+    final_video = video.with_audio(audio)
+    final_video.write_videofile(vp, fps=30, codec="libx264", audio_codec="aac")
+    final_video.close()
+    video.close()
+    audio.close()
+    
+    # 임시 파일 삭제
+    try:
+        os.remove(temp_vp)
+    except:
+        pass
 
     from moviepy import AudioFileClip
     ac = AudioFileClip(ap)

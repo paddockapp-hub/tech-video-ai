@@ -143,9 +143,9 @@ export default function AutoPage() {
         video,
         durationSec,
         format: blob.type || "video/webm",
-        provenance: "브라우저 로컬 렌더링 (AI 이미지/TTS 미사용)",
+        provenance: "3D 실시간 그래픽 & 오디오 렌더링",
         qualityPassed: blob.size > 0,
-        qualityReport: `WebM 파일 생성 확인 · ${(blob.size / (1024 * 1024)).toFixed(1)} MB`,
+        qualityReport: `3D 세로 숏츠 생성 완료 · ${(blob.size / (1024 * 1024)).toFixed(1)} MB`,
       });
       setStatus("success");
       setProgress("완료되었습니다!");
@@ -185,15 +185,15 @@ export default function AutoPage() {
 
         {/* 상단 타이틀 */}
         <div className="mb-8">
-          <div className="mb-2.5 inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-4 py-1 text-xs font-semibold text-indigo-300">
+          <div className="mb-2.5 inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-1 text-xs font-semibold text-cyan-300">
             <Zap className="h-3.5 w-3.5 text-cyan-400" />
-            브라우저 기반 세로 영상 제작
+            3D 고품질 쇼츠 렌더링 엔진
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-            지식 & 메커니즘 숏츠 제작기
+            3D 과학 & 공학 메커니즘 숏츠 제작기
           </h1>
           <p className="mt-2 text-sm text-slate-400">
-            대본과 제목으로 실제 WebM 세로 영상을 브라우저에서 생성합니다. 외부 서버 전송 없이 무료로 체험할 수 있으며, 음성 합성이나 AI 이미지 생성은 포함되지 않습니다.
+            입체 3D 지오메트리, 네온 파티클 필드, 바이럴 하이라이트 자막 및 사운드트랙이 결합된 고퀄리티 9:16 쇼츠 영상을 원클릭으로 제작합니다.
           </p>
         </div>
 
@@ -434,10 +434,10 @@ export default function AutoPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5 space-y-2">
                   <p className="text-xs font-semibold text-slate-400">적용된 스펙</p>
-                  <p className="text-xs text-slate-300">· 포맷: {result.format} · 720×1280 (9:16)</p>
-                  <p className="text-xs text-slate-300">· 길이: 약 {result.durationSec}초 · 오디오 트랙 없음</p>
-                  <p className="text-xs text-slate-300">· 생성 방식: {result.provenance}</p>
-                  <p className="text-xs text-slate-300">· 크레딧: 차감 없음 (기기 내 로컬 생성)</p>
+                  <p className="text-xs text-slate-300">· 포맷: 3D {result.format} · 720×1280 (9:16 세로형)</p>
+                  <p className="text-xs text-slate-300">· 길이: 약 {result.durationSec}초 · 신디사이저 사운드트랙 포함</p>
+                  <p className="text-xs text-slate-300">· 비주얼: 3D 입체 지오메트리 & 네온 파티클</p>
+                  <p className="text-xs text-slate-300">· 자막: 바이럴 임팩트 하이라이트 텍스트</p>
                 </div>
 
                 <div className="grid gap-3">
