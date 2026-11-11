@@ -71,7 +71,7 @@ export async function GET() {
   }
 
   // 랜덤 주제 생성
-  const categories = Object.keys(TOPICS);
+  const categories = Object.keys(TOPICS) as Array<keyof typeof TOPICS>;
   const randomCategory = categories[Math.floor(Math.random() * categories.length)];
   const topics = TOPICS[randomCategory];
   const randomTopic = topics[Math.floor(Math.random() * topics.length)];
