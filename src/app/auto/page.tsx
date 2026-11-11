@@ -68,6 +68,7 @@ export default function AutoPage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시 1회만 초기화하기 위한 의도된 의존성 생략
   }, []);
 
   useEffect(() => {

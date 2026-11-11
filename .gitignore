@@ -8,3 +8,8 @@ out/
 .DS_Store
 data/
 public/outputs/
+verify_3d_*
+verify3d*.log
+frame*.log
+eslint-install.log
+next-server.log
