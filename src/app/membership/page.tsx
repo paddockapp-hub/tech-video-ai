@@ -336,7 +336,7 @@ export default function MembershipPage() {
                   {(billingAvailable
                     ? t.features
                     : [
-                        "기기 브라우저에서 대본 자막 포함 720×1280 WebM 생성",
+                        "기기 브라우저에서 대본 자막 포함 1080×1920 WebM 생성",
                         "로컬 렌더링 · 서버 업로드 및 크레딧 차감 없음",
                         "AI 이미지, TTS 음성, MP4 서버 렌더링 미포함",
                       ]

@@ -30,7 +30,7 @@ export default function HomePage() {
           <FeatureCard
             icon={<Zap className="h-6 w-6 text-cyan-400" />}
             title="브라우저 WebM 영상 생성"
-            desc="대본 자막과 기하학 애니메이션을 포함한 실제 720×1280 세로 영상을 브라우저에서 만들고 다운로드합니다."
+            desc="대본 자막과 기하학 애니메이션을 포함한 실제 1080×1920 세로 영상을 브라우저에서 만들고 다운로드합니다."
           />
           <FeatureCard
             icon={<Sparkles className="h-6 w-6 text-indigo-400" />}

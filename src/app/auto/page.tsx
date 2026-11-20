@@ -20,7 +20,11 @@ import {
 import { Header } from "@/components/Header";
 import { CATEGORIES } from "@/lib/categories";
 import { generateScriptTemplate } from "@/lib/script-generator";
-import { renderBrowserVideo } from "@/lib/browser-video";
+import {
+  BROWSER_VIDEO_SPEC,
+  inspectBrowserVideo,
+  renderBrowserVideo,
+} from "@/lib/browser-video";
 
 type PipelineStatus = "idle" | "generating" | "success" | "error";
 
@@ -138,15 +142,31 @@ export default function AutoPage() {
           setProgress(`브라우저에서 영상 인코딩 중... ${Math.round(progress * 100)}%`);
         },
       });
+      const metadata = await inspectBrowserVideo(blob);
+      const durationMatches =
+        metadata.durationSec === null ||
+        Math.abs(metadata.durationSec - durationSec) <= 2;
+      const qualityPassed =
+        metadata.width === BROWSER_VIDEO_SPEC.width &&
+        metadata.height === BROWSER_VIDEO_SPEC.height &&
+        durationMatches;
+
+      if (!qualityPassed) {
+        throw new Error(
+          `영상 품질 검증 실패: ${metadata.width}×${metadata.height}, ${metadata.durationSec?.toFixed(1) ?? "길이 확인 불가"}초`,
+        );
+      }
+
       const video = URL.createObjectURL(blob);
+      const verifiedDuration = metadata.durationSec ?? durationSec;
 
       setResult({
         video,
-        durationSec,
+        durationSec: Math.round(verifiedDuration),
         format: blob.type || "video/webm",
-        provenance: "3D 실시간 그래픽 & 오디오 렌더링",
-        qualityPassed: blob.size > 0,
-        qualityReport: `3D 세로 숏츠 생성 완료 · ${(blob.size / (1024 * 1024)).toFixed(1)} MB`,
+        provenance: "3D 실시간 그래픽 & 신디사이저 사운드트랙",
+        qualityPassed,
+        qualityReport: `프레임 재생 검증 통과 · ${metadata.width}×${metadata.height} · ${verifiedDuration}초 · ${(blob.size / (1024 * 1024)).toFixed(1)} MB`,
       });
       setStatus("success");
       setProgress("완료되었습니다!");
@@ -329,7 +349,7 @@ export default function AutoPage() {
             />
             <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
               <span>{script.length}자 · 약 {Math.round(script.length / 5.5)}초 분량</span>
-              <span>브라우저 렌더 · 예상 {estimateDuration(script)}초 · 음성 없음</span>
+              <span>브라우저 렌더 · 예상 {estimateDuration(script)}초 · 나레이션 TTS 없음 · 신디사이저 배경음 포함</span>
             </div>
           </div>
 
@@ -435,8 +455,8 @@ export default function AutoPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5 space-y-2">
                   <p className="text-xs font-semibold text-slate-400">적용된 스펙</p>
-                  <p className="text-xs text-slate-300">· 포맷: 3D {result.format} · 720×1280 (9:16 세로형)</p>
-                  <p className="text-xs text-slate-300">· 길이: 약 {result.durationSec}초 · 신디사이저 사운드트랙 포함</p>
+                  <p className="text-xs text-slate-300">· 포맷: 3D {result.format} · {BROWSER_VIDEO_SPEC.width}×{BROWSER_VIDEO_SPEC.height} · {BROWSER_VIDEO_SPEC.frameRate}fps · 10Mbps 목표</p>
+                  <p className="text-xs text-slate-300">· 길이: 약 {result.durationSec}초 · 나레이션 TTS 없음 · 신디사이저 배경음 포함</p>
                   <p className="text-xs text-slate-300">· 비주얼: 3D 입체 지오메트리 & 네온 파티클</p>
                   <p className="text-xs text-slate-300">· 자막: 바이럴 임팩트 하이라이트 텍스트</p>
                 </div>

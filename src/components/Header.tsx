@@ -160,9 +160,9 @@ export function HeroSection() {
         </h1>
 
         <p className="mx-auto max-w-xl text-base text-slate-300 sm:text-lg leading-relaxed">
-          대본과 주제를 입력하면 브라우저에서 실제 720×1280 WebM 영상과
+          대본과 주제를 입력하면 브라우저에서 실제 1080×1920 WebM 영상과
           <br className="hidden sm:block" />
-          자막·기하학 애니메이션을 만들 수 있습니다. 음성 합성은 포함되지 않습니다.
+          자막·기하학 애니메이션을 만들 수 있습니다. 나레이션 TTS는 없고 신디사이저 배경음이 포함됩니다.
         </p>
 
         <div className="mt-8 flex flex-wrap justify-center gap-4">

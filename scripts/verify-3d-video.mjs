@@ -77,9 +77,9 @@ try {
   await page.evaluate(() => {
     const v = document.querySelector("video");
     return new Promise((res) => {
-      if (v.readyState >= 1) return res();
-      v.addEventListener("loadedmetadata", res, { once: true });
-      setTimeout(res, 5000);
+      if (v.readyState >= 2) return res();
+      v.addEventListener("loadeddata", res, { once: true });
+      setTimeout(res, 10000);
     });
   });
 
@@ -97,6 +97,7 @@ try {
       size: blob.size,
       type: blob.type,
       duration: v.duration,
+      readyState: v.readyState,
       w: v.videoWidth,
       h: v.videoHeight,
     };
@@ -112,7 +113,11 @@ try {
   log("길이:", Number.isFinite(info.duration) ? info.duration.toFixed(1) + "초" : "메타데이터 없음(" + info.duration + ")");
   log("저장:", OUT_VIDEO, "/", OUT_SHOT);
 
-  const ok = info.size > 100000 && info.w === 720 && info.h === 1280;
+  const ok =
+    info.size > 100000 &&
+    info.w === 1080 &&
+    info.h === 1920 &&
+    info.readyState >= 2;
   log(ok ? "✅ 3D WebM 영상 생성 검증 통과" : "⚠️ 검증 조건 미충족");
   process.exitCode = ok ? 0 : 2;
 } catch (e) {

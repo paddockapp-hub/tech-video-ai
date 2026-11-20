@@ -12,7 +12,16 @@ export interface BrowserVideoOptions {
 
 const WIDTH = 720;
 const HEIGHT = 1280;
-const FPS = 30;
+const OUTPUT_SCALE = 1.5;
+const CANVAS_FONT_FAMILY = '"Inter", "Noto Sans KR", sans-serif';
+
+export const BROWSER_VIDEO_SPEC = {
+  width: Math.round(WIDTH * OUTPUT_SCALE),
+  height: Math.round(HEIGHT * OUTPUT_SCALE),
+  frameRate: 30,
+  videoBitsPerSecond: 10_000_000,
+  audioBitsPerSecond: 192_000,
+};
 
 // 3D Vector & Math Helpers
 interface Vec3 {
@@ -107,19 +116,46 @@ function wrapText(
   text: string,
   maxWidth: number
 ): string[] {
-  const words = text.split(" ");
   const lines: string[] = [];
   let currentLine = "";
 
-  for (const word of words) {
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    if (context.measureText(testLine).width > maxWidth && currentLine) {
+  const appendLongWord = (word: string) => {
+    let chunk = "";
+    for (const character of Array.from(word)) {
+      const candidate = `${chunk}${character}`;
+      if (chunk && context.measureText(candidate).width > maxWidth) {
+        if (currentLine) {
+          lines.push(currentLine);
+          currentLine = "";
+        }
+        lines.push(chunk);
+        chunk = character;
+      } else {
+        chunk = candidate;
+      }
+    }
+    currentLine = chunk;
+  };
+
+  for (const word of text.trim().split(/\s+/).filter(Boolean)) {
+    const candidate = currentLine ? `${currentLine} ${word}` : word;
+    if (context.measureText(candidate).width <= maxWidth) {
+      currentLine = candidate;
+      continue;
+    }
+
+    if (currentLine) {
       lines.push(currentLine);
+      currentLine = "";
+    }
+
+    if (context.measureText(word).width <= maxWidth) {
       currentLine = word;
     } else {
-      currentLine = testLine;
+      appendLongWord(word);
     }
   }
+
   if (currentLine) lines.push(currentLine);
   return lines;
 }
@@ -364,13 +400,13 @@ function draw3DScene(
   ctx.stroke();
 
   ctx.fillStyle = primaryColor;
-  ctx.font = "800 16px sans-serif";
+  ctx.font = `800 16px ${CANVAS_FONT_FAMILY}`;
   ctx.textAlign = "center";
   ctx.fillText(isEng ? "⚡ 3D ENGINEERING MECHANISM" : "🔬 3D SCIENCE & EDUCATION", WIDTH / 2, badgeY + 28);
 
   // 상단 영상 제목 (임팩트 헤드라인)
   ctx.fillStyle = "#ffffff";
-  ctx.font = "800 38px sans-serif";
+  ctx.font = `800 38px ${CANVAS_FONT_FAMILY}`;
   ctx.textAlign = "center";
   ctx.shadowBlur = 14;
   ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
@@ -389,7 +425,7 @@ function draw3DScene(
 
   ctx.save();
   const captionY = HEIGHT * 0.76;
-  ctx.font = "800 36px sans-serif";
+  ctx.font = `800 36px ${CANVAS_FONT_FAMILY}`;
   const captionLines = wrapText(ctx, caption, WIDTH - 120).slice(0, 3);
   const boxHeight = Math.max(110, captionLines.length * 52 + 40);
 
@@ -490,6 +526,70 @@ function createSynthesizedAudioStream(audioCtx: AudioContext, durationSec: numbe
   return dest.stream;
 }
 
+export interface BrowserVideoMetadata {
+  width: number;
+  height: number;
+  durationSec: number | null;
+}
+
+export function inspectBrowserVideo(blob: Blob): Promise<BrowserVideoMetadata> {
+  if (typeof document === "undefined" || blob.size === 0) {
+    return Promise.reject(new Error("생성된 영상 데이터를 검증할 수 없습니다."));
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  const video = document.createElement("video");
+  video.preload = "auto";
+
+  return new Promise((resolve, reject) => {
+    let timeoutId = 0;
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      video.removeEventListener("loadeddata", handleLoadedData);
+      video.removeEventListener("error", handleError);
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(objectUrl);
+    };
+    const fail = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const handleLoadedData = () => {
+      const metadata = {
+        width: video.videoWidth,
+        height: video.videoHeight,
+        durationSec: Number.isFinite(video.duration) && video.duration > 0
+          ? video.duration
+          : null,
+      };
+
+      if (metadata.width <= 0 || metadata.height <= 0) {
+        fail(
+          new Error(
+            `WebM 프레임을 디코딩할 수 없습니다 (${metadata.width}×${metadata.height}).`,
+          ),
+        );
+        return;
+      }
+
+      cleanup();
+      resolve(metadata);
+    };
+    const handleError = () => {
+      fail(new Error("생성한 WebM을 브라우저에서 읽지 못했습니다."));
+    };
+
+    video.addEventListener("loadeddata", handleLoadedData, { once: true });
+    video.addEventListener("error", handleError, { once: true });
+    timeoutId = window.setTimeout(() => {
+      fail(new Error("WebM 프레임 재생 검증 시간이 초과되었습니다."));
+    }, 10_000);
+    video.src = objectUrl;
+    video.load();
+  });
+}
+
 /**
  * 3D 비디오 + 신디사이저 오디오 통합 렌더링 함수
  */
@@ -504,13 +604,18 @@ export async function renderBrowserVideo({
     throw new Error("이 브라우저는 영상 녹화를 지원하지 않습니다. Chrome 또는 Edge 브라우저를 사용해주세요.");
   }
 
+  await document.fonts
+    .load('800 38px "Noto Sans KR"', `${title} ${script}`)
+    .catch(() => []);
+
   const canvas = document.createElement("canvas");
-  canvas.width = WIDTH;
-  canvas.height = HEIGHT;
+  canvas.width = BROWSER_VIDEO_SPEC.width;
+  canvas.height = BROWSER_VIDEO_SPEC.height;
   const ctx = canvas.getContext("2d");
   if (!ctx || typeof canvas.captureStream !== "function") {
     throw new Error("3D 그래픽 캔버스를 초기화할 수 없습니다.");
   }
+  ctx.setTransform(OUTPUT_SCALE, 0, 0, OUTPUT_SCALE, 0, 0);
 
   const mimeType = [
     "video/webm;codecs=vp9,opus",
@@ -518,94 +623,107 @@ export async function renderBrowserVideo({
     "video/webm",
   ].find((type) => MediaRecorder.isTypeSupported(type)) || "video/webm";
 
-  // 대본 문장 분할
   const rawSegments = script
     .replace(/([.!?。！？\n])\s*/g, "$1|")
     .split("|")
     .map((s) => s.trim())
     .filter(Boolean);
-
   const segments = rawSegments.length > 0 ? rawSegments : [title];
   const duration = Math.max(3, Math.min(60, Math.floor(durationSec)));
-
-  // 비디오 스트림 & 오디오 스트림 결합
-  const videoStream = canvas.captureStream(FPS);
+  const videoStream = canvas.captureStream(BROWSER_VIDEO_SPEC.frameRate);
 
   let combinedStream = videoStream;
   let audioCtx: AudioContext | null = null;
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (AudioContextClass) {
-      audioCtx = new AudioContextClass();
-      if (audioCtx.state === "suspended") {
-        await audioCtx.resume();
-      }
-      const audioStream = createSynthesizedAudioStream(audioCtx, duration);
-      const audioTracks = audioStream.getAudioTracks();
-      if (audioTracks.length > 0) {
-        combinedStream = new MediaStream([
-          ...videoStream.getVideoTracks(),
-          ...audioTracks,
-        ]);
-      }
-    }
-  } catch (audioErr) {
-    console.warn("[Audio Synth Warning] Proceeding with video only:", audioErr);
-  }
-
-  const recorder = new MediaRecorder(combinedStream, {
-    mimeType,
-    videoBitsPerSecond: 4_500_000, // 고화질 4.5 Mbps
-  });
-
-  const chunks: BlobPart[] = [];
-  const recordingPromise = new Promise<Blob>((resolve, reject) => {
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-    recorder.onerror = () => reject(new Error("3D 영상 녹화 중 인코더 오류가 발생했습니다."));
-    recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
-  });
-
+  let recorder: MediaRecorder | null = null;
+  let animationFrameId: number | null = null;
+  let rejectFrameLoop: ((error: Error) => void) | null = null;
   const particles = initParticles(110);
   const startedAt = performance.now();
 
   try {
-    recorder.start(400);
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        audioCtx = new AudioContextClass();
+        if (audioCtx.state === "suspended") {
+          await audioCtx.resume();
+        }
+        const audioStream = createSynthesizedAudioStream(audioCtx, duration);
+        const audioTracks = audioStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          combinedStream = new MediaStream([
+            ...videoStream.getVideoTracks(),
+            ...audioTracks,
+          ]);
+        }
+      }
+    } catch (audioErr) {
+      console.warn("[Audio Synth Warning] Proceeding with video only:", audioErr);
+    }
 
-    await new Promise<void>((resolve, reject) => {
+    const activeRecorder = new MediaRecorder(combinedStream, {
+      mimeType,
+      videoBitsPerSecond: BROWSER_VIDEO_SPEC.videoBitsPerSecond,
+      audioBitsPerSecond: BROWSER_VIDEO_SPEC.audioBitsPerSecond,
+    });
+    recorder = activeRecorder;
+
+    const chunks: BlobPart[] = [];
+    const recordingPromise = new Promise<Blob>((resolve, reject) => {
+      activeRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      activeRecorder.onerror = () => {
+        const error = new Error("3D 영상 녹화 중 인코더 오류가 발생했습니다.");
+        reject(error);
+        rejectFrameLoop?.(error);
+      };
+      activeRecorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+    });
+
+    activeRecorder.start(400);
+    const renderPromise = new Promise<void>((resolve, reject) => {
+      rejectFrameLoop = reject;
       const renderFrame = () => {
-        if (recorder.state !== "recording") {
+        animationFrameId = null;
+        if (activeRecorder.state !== "recording") {
           reject(new Error("영상 인코딩이 중단되었습니다."));
           return;
         }
 
-        const elapsed = (performance.now() - startedAt) / 1000;
-        draw3DScene(ctx, title, segments, category, elapsed, duration, particles);
-        onProgress?.(Math.min(1, elapsed / duration));
+        try {
+          const elapsed = (performance.now() - startedAt) / 1000;
+          draw3DScene(ctx, title, segments, category, elapsed, duration, particles);
+          onProgress?.(Math.min(1, elapsed / duration));
 
-        if (elapsed >= duration) {
-          recorder.stop();
-          resolve();
-        } else {
-          requestAnimationFrame(renderFrame);
+          if (elapsed >= duration) {
+            activeRecorder.stop();
+            resolve();
+            return;
+          }
+        } catch (error) {
+          reject(error);
+          return;
         }
+
+        animationFrameId = requestAnimationFrame(renderFrame);
       };
-      requestAnimationFrame(renderFrame);
+      animationFrameId = requestAnimationFrame(renderFrame);
     });
 
-    const blob = await recordingPromise;
+    const [blob] = await Promise.all([recordingPromise, renderPromise] as const);
     if (blob.size === 0) {
       throw new Error("생성된 영상 데이터가 비어 있습니다.");
     }
     return blob;
   } finally {
-    if (recorder.state === "recording") recorder.stop();
-    combinedStream.getTracks().forEach((t) => t.stop());
+    if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+    if (recorder?.state === "recording") recorder.stop();
+    combinedStream.getTracks().forEach((track) => track.stop());
     if (audioCtx) {
       try {
         await audioCtx.close();
-      } catch { }
+      } catch {}
     }
   }
 }
