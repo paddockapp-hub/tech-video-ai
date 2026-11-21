@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ShortsMaking - 공학 쇼츠 제작 플랫폼",
+  title: "ShortsMaking - 시네마틱 3D 쇼츠 제작",
   description:
-    "Codex + Google Flow 워크플로우 기반 교육용 쇼츠 자동 제작 플랫폼",
+    "주제별 3D 장면과 시네마틱 카메라로 교육·공학 쇼츠를 제작하는 플랫폼",
 };
 
 export default function RootLayout({

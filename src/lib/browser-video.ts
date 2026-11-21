@@ -1,6 +1,8 @@
 // =============================================================================
-// Real 3D Cinematic Shorts Video Renderer (Canvas 3D Engine + Web Audio Synthesizer)
+// Cinematic 3D Shorts Video Renderer (WebGL + Web Audio Synthesizer)
 // =============================================================================
+
+import { CinematicEngineeringScene } from "./cinematic-scene";
 
 export interface BrowserVideoOptions {
   title: string;
@@ -483,7 +485,7 @@ function draw3DScene(
 /**
  * Web Audio API를 활용한 사이언스/테크 배경 앰비언트 신디사이저 오디오 생성
  */
-function createSynthesizedAudioStream(audioCtx: AudioContext, durationSec: number): MediaStream {
+export function createSynthesizedAudioStream(audioCtx: AudioContext, durationSec: number): MediaStream {
   const dest = audioCtx.createMediaStreamDestination();
 
   // 1. 깊은 서브 베이스 앰비언스 (110Hz -> 55Hz)
@@ -630,6 +632,14 @@ export async function renderBrowserVideo({
     .filter(Boolean);
   const segments = rawSegments.length > 0 ? rawSegments : [title];
   const duration = Math.max(3, Math.min(60, Math.floor(durationSec)));
+  const cinematicScene = category === "engineering"
+    ? new CinematicEngineeringScene(
+        title,
+        script,
+        BROWSER_VIDEO_SPEC.width,
+        BROWSER_VIDEO_SPEC.height,
+      )
+    : null;
   const videoStream = canvas.captureStream(BROWSER_VIDEO_SPEC.frameRate);
 
   let combinedStream = videoStream;
@@ -637,7 +647,7 @@ export async function renderBrowserVideo({
   let recorder: MediaRecorder | null = null;
   let animationFrameId: number | null = null;
   let rejectFrameLoop: ((error: Error) => void) | null = null;
-  const particles = initParticles(110);
+  const particles = cinematicScene ? [] : initParticles(110);
   const startedAt = performance.now();
 
   try {
@@ -693,7 +703,11 @@ export async function renderBrowserVideo({
 
         try {
           const elapsed = (performance.now() - startedAt) / 1000;
-          draw3DScene(ctx, title, segments, category, elapsed, duration, particles);
+          if (cinematicScene) {
+            cinematicScene.renderFrame(ctx, segments, elapsed, duration);
+          } else {
+            draw3DScene(ctx, title, segments, category, elapsed, duration, particles);
+          }
           onProgress?.(Math.min(1, elapsed / duration));
 
           if (elapsed >= duration) {
@@ -718,6 +732,7 @@ export async function renderBrowserVideo({
     return blob;
   } finally {
     if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+    cinematicScene?.dispose();
     if (recorder?.state === "recording") recorder.stop();
     combinedStream.getTracks().forEach((track) => track.stop());
     if (audioCtx) {

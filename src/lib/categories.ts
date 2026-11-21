@@ -187,6 +187,23 @@ export const CATEGORIES: CategoryGroup[] = [
         visualStyleGuide: "파이프라인 흐름 시뮬레이션, 결정 격자(Crystal Lattice), 반응기 내부 열화상",
         sampleTopics: ["분별증류탑 온도 구배와 비점 분리", "리튬이온 vs 전고체 전해질", "태양광 패널 광전효과 PN접합"],
       },
+      {
+        id: "civil-structural",
+        name: "토목공학 / 건축기초",
+        description: "말뚝 기초, 지반 천공, 시멘트 그라우팅, 고층 건물 구조",
+        targetAudience: "건축·토목 전공자, 건설 기술에 관심 있는 시청자",
+        recommendedHooks: [
+          "아파트 공사장에서 쿵쿵 소리가 사라진 이유",
+          "콘크리트 말뚝을 땅에 박지 않고 심는 방법",
+          "고층 아파트가 깊은 땅속에 기둥을 세우는 이유",
+        ],
+        visualStyleGuide: "시네마틱 3D 공사 현장, 지반 단면 컷어웨이, 천공기와 말뚝 시공",
+        sampleTopics: [
+          "아파트 공사장에서 쿵쿵 소리가 사라진 이유",
+          "소음과 진동을 줄이는 말뚝 기초 공법",
+          "시멘트 그라우트로 지반과 말뚝을 고정하는 원리",
+        ],
+      },
     ],
   },
 ];

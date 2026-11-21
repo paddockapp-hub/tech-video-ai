@@ -28,16 +28,26 @@ export function generateScriptTemplate(
   const topic = req.customTopic || sub?.sampleTopics[0] || "핵심 작동 원리";
   const duration = req.targetDurationSec || 45;
 
-  const hook =
-    sub?.recommendedHooks[Math.floor(Math.random() * sub.recommendedHooks.length)] ||
-    `${topic}, 과연 어떤 원리로 작동하는 걸까요?`;
+  const hook = topic;
 
   // 공학 카테고리일 때와 교육 카테고리일 때의 차별화 템플릿
   const isEngineering = req.category === "engineering";
+  const isCivilEngineering = req.subcategory === "civil-structural";
 
   let sentences: string[] = [];
 
-  if (isEngineering) {
+  if (isCivilEngineering) {
+    sentences = [
+      hook,
+      "고층 아파트를 세울 때는 건물의 무게를 단단한 지반까지 전달할 깊은 기초가 필요합니다.",
+      "전통적인 공법은 거대한 해머로 콘크리트 말뚝을 땅속까지 반복해서 두드려 박는 방식이었습니다.",
+      "하지만 타격 때마다 큰 소음과 진동이 주변 건물과 주거지까지 그대로 전달됐습니다.",
+      "새 공법은 먼저 스크루형 천공기로 단단한 지층까지 조용히 구멍을 뚫습니다.",
+      "구멍 안에 시멘트 페이스트를 채우고 그 위로 콘크리트 말뚝을 천천히 내려놓습니다.",
+      "시멘트가 굳으면 말뚝과 지반 사이를 빈틈없이 감싸 건물의 하중을 넓게 전달합니다.",
+      "세게 박는 대신 말뚝을 땅에 심듯 설치하기 때문에 공사장 소음과 흔들림을 크게 줄일 수 있습니다.",
+    ];
+  } else if (isEngineering) {
     sentences = [
       `${hook}`,
       `우리가 매일 마주하는 ${topic}의 핵심은 바로 내부의 물리적 메커니즘에 있습니다.`,
@@ -69,12 +79,16 @@ export function generateScriptTemplate(
     return {
       secondRange: `${startSec}s ~ ${endSec}s`,
       narrationPart: st,
-      visualDescription: isEngineering
-        ? `[클립 ${i + 1}] 3D 금속 메커니즘 분해도, 내부 단면 투시 (Cutaway), 작동 축 회전`
-        : `[클립 ${i + 1}] 다크 배경의 네온 그래프 시각화, 핵심 수식 및 좌표계 강조 애니메이션`,
-      infographicElements: isEngineering
-        ? "유체 흐름 화살표(파란색/빨간색 벡터), 압력 게이지, 치수선 콜아웃"
-        : "주요 등식 하이라이트 박스, 변화량(Δ) 화살표, 1등급 체크 포인트 뱃지",
+      visualDescription: isCivilEngineering
+        ? `[클립 ${i + 1}] 시네마틱 3D 건설 현장, 지층 단면과 천공·그라우팅·말뚝 설치 과정`
+        : isEngineering
+          ? `[클립 ${i + 1}] 실사풍 3D 금속 메커니즘 분해도, 재질감 있는 단면 투시와 카메라 이동`
+          : `[클립 ${i + 1}] 다크 배경의 3D 개념 시각화, 핵심 수식 및 좌표계 강조 애니메이션`,
+      infographicElements: isCivilEngineering
+        ? "말뚝 깊이, 단단한 지층, 시멘트 그라우트의 단면 콜아웃"
+        : isEngineering
+          ? "작동 부위와 힘의 흐름을 가리키는 간결한 콜아웃"
+          : "주요 등식 하이라이트 박스, 변화량(Δ) 화살표, 핵심 개념 표시",
     };
   });
 

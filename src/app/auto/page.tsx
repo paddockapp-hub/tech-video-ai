@@ -18,6 +18,9 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Header } from "@/components/Header";
+import { RenderModeSelector, type RenderMode } from "@/components/RenderModeSelector";
+import { AI_VIDEO_EXPECTED_COST_USD, AI_VIDEO_TOTAL_DURATION_SEC } from "@/lib/ai-video-config";
+import { renderSeedanceVideo } from "@/lib/ai-video-client";
 import { CATEGORIES } from "@/lib/categories";
 import { generateScriptTemplate } from "@/lib/script-generator";
 import {
@@ -44,8 +47,9 @@ function estimateDuration(script: string) {
 export default function AutoPage() {
   const [user, setUser] = useState<any>(null);
   const [selectedCategory, setSelectedCategory] = useState<"education" | "engineering">("engineering");
-  const [selectedSubcategory, setSelectedSubcategory] = useState<string>("mechanical-automotive");
-  const [title, setTitle] = useState("비행기 날개의 원리와 양력 발생");
+  const [renderMode, setRenderMode] = useState<RenderMode>("local3d");
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>("civil-structural");
+  const [title, setTitle] = useState("아파트 공사장에서 쿵쿵 소리가 사라진 이유");
   const [script, setScript] = useState("");
   const [status, setStatus] = useState<PipelineStatus>("idle");
   const [progress, setProgress] = useState("");
@@ -129,19 +133,39 @@ export default function AutoPage() {
       setElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
-    const durationSec = estimateDuration(script.trim());
-    setProgress("브라우저에서 실제 WebM 영상 장면을 렌더링 중...");
+    if (renderMode === "ai1080" && process.env.NODE_ENV !== "development") {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setStatus("error");
+      setError("AI 유료 영상 생성은 프로덕션에서 비활성화되어 있습니다.");
+      return;
+    }
+
+    const durationSec = renderMode === "ai1080"
+      ? AI_VIDEO_TOTAL_DURATION_SEC
+      : estimateDuration(script.trim());
+    setProgress(
+      renderMode === "ai1080"
+        ? "현재 Gateway 요금을 확인한 뒤 AI 클립을 생성합니다..."
+        : "주제별 3D 장면과 시네마틱 조명을 초기화하는 중...",
+    );
 
     try {
-      const blob = await renderBrowserVideo({
-        script: script.trim(),
-        title: title.trim(),
-        category: selectedCategory,
-        durationSec,
-        onProgress: (progress) => {
-          setProgress(`브라우저에서 영상 인코딩 중... ${Math.round(progress * 100)}%`);
-        },
-      });
+      const blob = renderMode === "ai1080"
+        ? await renderSeedanceVideo({
+            script: script.trim(),
+            title: title.trim(),
+            category: selectedCategory,
+            onProgress: setProgress,
+          })
+        : await renderBrowserVideo({
+            script: script.trim(),
+            title: title.trim(),
+            category: selectedCategory,
+            durationSec,
+            onProgress: (progress) => {
+              setProgress(`3D 장면 렌더링·영상 인코딩 중... ${Math.round(progress * 100)}%`);
+            },
+          });
       const metadata = await inspectBrowserVideo(blob);
       const durationMatches =
         metadata.durationSec === null ||
@@ -164,9 +188,13 @@ export default function AutoPage() {
         video,
         durationSec: Math.round(verifiedDuration),
         format: blob.type || "video/webm",
-        provenance: "3D 실시간 그래픽 & 신디사이저 사운드트랙",
+        provenance: renderMode === "ai1080"
+          ? "Seedance v1.0 Pro Fast · 3개 AI 클립 · 1080p WebM 합성"
+          : selectedCategory === "engineering"
+            ? "WebGL 시네마틱 3D 장면 & 신디사이저 사운드트랙"
+            : "3D 교육 시각화 & 신디사이저 사운드트랙",
         qualityPassed,
-        qualityReport: `프레임 재생 검증 통과 · ${metadata.width}×${metadata.height} · ${verifiedDuration}초 · ${(blob.size / (1024 * 1024)).toFixed(1)} MB`,
+        qualityReport: `재생·출력 규격 확인 · ${metadata.width}×${metadata.height} · ${verifiedDuration}초 · ${(blob.size / (1024 * 1024)).toFixed(1)} MB`,
       });
       setStatus("success");
       setProgress("완료되었습니다!");
@@ -208,15 +236,21 @@ export default function AutoPage() {
         <div className="mb-8">
           <div className="mb-2.5 inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-4 py-1 text-xs font-semibold text-cyan-300">
             <Zap className="h-3.5 w-3.5 text-cyan-400" />
-            3D 고품질 쇼츠 렌더링 엔진
+            시네마틱 3D 렌더링
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
             3D 과학 & 공학 메커니즘 숏츠 제작기
           </h1>
           <p className="mt-2 text-sm text-slate-400">
-            입체 3D 지오메트리, 네온 파티클 필드, 바이럴 하이라이트 자막 및 사운드트랙이 결합된 고퀄리티 9:16 쇼츠 영상을 원클릭으로 제작합니다.
+            주제에 맞춘 실시간 3D 장면, 건설 현장 컷어웨이, 시네마틱 조명과 한국어 자막으로 9:16 쇼츠를 렌더링합니다.
           </p>
         </div>
+
+        <RenderModeSelector
+          value={renderMode}
+          onChange={setRenderMode}
+          aiAvailable={process.env.NODE_ENV === "development"}
+        />
 
         {/* 1. 카테고리 탭 선택 (교육 vs 공학) */}
         <div className="mb-6 grid grid-cols-2 gap-3">
@@ -317,7 +351,7 @@ export default function AutoPage() {
               value={title}
               maxLength={100}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="예: 4행정 엔진 실린더 폭발의 원리"
+              placeholder="예: 소음과 진동을 줄이는 말뚝 기초 공법"
               disabled={status === "generating"}
               className="w-full rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 text-sm text-white placeholder-slate-500 focus:border-cyan-500 outline-none"
             />
@@ -349,7 +383,7 @@ export default function AutoPage() {
             />
             <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
               <span>{script.length}자 · 약 {Math.round(script.length / 5.5)}초 분량</span>
-              <span>브라우저 렌더 · 예상 {estimateDuration(script)}초 · 나레이션 TTS 없음 · 신디사이저 배경음 포함</span>
+              <span>실시간 3D 렌더 · 예상 {estimateDuration(script)}초 · 나레이션 TTS 없음 · 신디사이저 배경음 포함</span>
             </div>
           </div>
 
@@ -359,17 +393,19 @@ export default function AutoPage() {
             disabled={status === "generating" || !script.trim() || !title.trim()}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 py-4 text-base font-bold text-white shadow-xl shadow-indigo-600/25 hover:brightness-110 active:scale-[0.98] transition disabled:opacity-50"
           >
-            {status === "generating" ? (
-              <>
-                <Loader2 className="h-5 w-5 animate-spin" />
-                영상 제작 진행 중... ({elapsed}초)
-              </>
-            ) : (
-              <>
-                <Zap className="h-5 w-5" />
-                무료 브라우저 영상 만들기 (WebM)
-              </>
-            )}
+              {status === "generating" ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  영상 제작 진행 중... ({elapsed}초)
+                </>
+              ) : (
+                <>
+                  <Zap className="h-5 w-5" />
+                  {renderMode === "ai1080"
+                    ? `AI 영상 생성 · 예상 $${AI_VIDEO_EXPECTED_COST_USD.toFixed(2)}`
+                    : "시네마틱 3D 쇼츠 렌더링 (WebM)"}
+                </>
+              )}
           </button>
         </div>
 
@@ -383,12 +419,12 @@ export default function AutoPage() {
 
             <div className="space-y-3">
               <StepRow
-                label="제목·카테고리 기반 그래픽 장면 그리기"
+                label={renderMode === "ai1080" ? "AI 영상 클립 3개 생성" : "주제에 맞는 3D 장면과 재질 렌더링"}
                 active={elapsed < 2}
                 done={elapsed >= 2}
               />
               <StepRow
-                label="대본 자막을 영상 프레임에 합성"
+                label={renderMode === "ai1080" ? "1080p 영상 연결·한국어 자막·오디오 합성" : "카메라 움직임·한국어 자막·오디오 합성"}
                 active={elapsed >= 2}
                 done={false}
               />
@@ -424,7 +460,7 @@ export default function AutoPage() {
               <div>
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400 border border-emerald-500/20 mb-2">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  브라우저 렌더 완료 ({elapsed}초 소요)
+                  {renderMode === "ai1080" ? "AI 영상 합성 완료" : "3D 렌더 완료"} ({elapsed}초 소요)
                 </div>
                 <h3 className="text-xl font-bold text-white">실제 영상 파일이 생성되었습니다</h3>
               </div>
@@ -455,9 +491,9 @@ export default function AutoPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5 space-y-2">
                   <p className="text-xs font-semibold text-slate-400">적용된 스펙</p>
-                  <p className="text-xs text-slate-300">· 포맷: 3D {result.format} · {BROWSER_VIDEO_SPEC.width}×{BROWSER_VIDEO_SPEC.height} · {BROWSER_VIDEO_SPEC.frameRate}fps · 10Mbps 목표</p>
+                  <p className="text-xs text-slate-300">· 포맷: {renderMode === "ai1080" ? "AI 합성" : "3D"} {result.format} · {BROWSER_VIDEO_SPEC.width}×{BROWSER_VIDEO_SPEC.height} · {BROWSER_VIDEO_SPEC.frameRate}fps · 10Mbps 인코딩 목표</p>
                   <p className="text-xs text-slate-300">· 길이: 약 {result.durationSec}초 · 나레이션 TTS 없음 · 신디사이저 배경음 포함</p>
-                  <p className="text-xs text-slate-300">· 비주얼: 3D 입체 지오메트리 & 네온 파티클</p>
+                  <p className="text-xs text-slate-300">· 비주얼: {renderMode === "ai1080" ? "Seedance AI 장면 3개, 한국어 자막 합성" : "주제별 3D 컷어웨이, 재질 텍스처, 시네마틱 카메라"}</p>
                   <p className="text-xs text-slate-300">· 자막: 바이럴 임팩트 하이라이트 텍스트</p>
                 </div>
 
