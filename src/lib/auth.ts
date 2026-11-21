@@ -185,8 +185,24 @@ export async function getCurrentUser(): Promise<User | null> {
   const user = users.find((u) => u.id === session.userId);
   if (!user || user.status === "suspended") return null;
 
-  // 결제일/활성화일 기준 30일 주기 리셋 정책
   const now = new Date();
+  let mutated = false;
+
+  if (
+    user.role !== "admin" &&
+    user.membershipTier !== "free" &&
+    user.membershipExpiresAt &&
+    new Date(user.membershipExpiresAt) <= now
+  ) {
+    const config = DB.getConfig();
+    user.membershipTier = "free";
+    user.monthlyLimit = config.tierLimits.free ?? 3;
+    user.membershipExpiresAt = undefined;
+    user.updatedAt = now.toISOString();
+    mutated = true;
+  }
+
+  // 결제일/활성화일 기준 30일 주기 리셋 정책
   if (user.nextResetDate && new Date(user.nextResetDate) <= now) {
     const nextDate = new Date(user.nextResetDate);
     while (nextDate <= now) {
@@ -195,6 +211,10 @@ export async function getCurrentUser(): Promise<User | null> {
     user.usedCredits = 0; // 정기 한도 사용량만 0으로 초기화 (보너스 크레딧은 보존)
     user.nextResetDate = nextDate.toISOString();
     user.updatedAt = now.toISOString();
+    mutated = true;
+  }
+
+  if (mutated) {
     DB.setUsers(users);
   }
 

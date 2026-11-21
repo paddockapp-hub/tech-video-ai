@@ -14,6 +14,7 @@ import {
   HelpCircle,
   ChevronRight,
 } from "lucide-react";
+import { ANNUAL_DISCOUNT_PERCENT, quoteMembershipPrice, type BillingCycle } from "@/lib/billing";
 
 interface BankConfig {
   bankName: string;
@@ -38,6 +39,8 @@ interface TransferItem {
   adminMemo?: string;
   createdAt: string;
   approvedAt?: string;
+  billingCycle?: BillingCycle;
+  periodDays?: number;
 }
 
 export default function MembershipPage() {
@@ -46,6 +49,7 @@ export default function MembershipPage() {
   const [billingAvailable, setBillingAvailable] = useState(true);
   const [transfers, setTransfers] = useState<TransferItem[]>([]);
   const [selectedTier, setSelectedTier] = useState<"basic" | "standard" | "premium">("standard");
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>("monthly");
   const [depositorName, setDepositorName] = useState("");
   const [userMemo, setUserMemo] = useState("");
   const [copied, setCopied] = useState(false);
@@ -117,6 +121,7 @@ export default function MembershipPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tier: selectedTier,
+          billingCycle,
           depositorName: depositorName.trim(),
           userMemo: userMemo.trim(),
         }),
@@ -159,12 +164,17 @@ export default function MembershipPage() {
     }
   }
 
+  const selectedQuote = quoteMembershipPrice(
+    bankConfig?.tierPricesKRW?.[selectedTier] ?? 44900,
+    billingCycle
+  );
+
   const tiers = [
     {
       id: "basic",
       name: "Basic",
       limit: bankConfig?.tierLimits?.basic ?? 30,
-      price: bankConfig?.tierPricesKRW?.basic ?? 29000,
+      price: quoteMembershipPrice(bankConfig?.tierPricesKRW?.basic ?? 29000, billingCycle).amountKRW,
       desc: "개인 크리에이터 및 취미 제작자를 위한 기본 플랜",
       features: [
         "월 30회 1080×1920 세로 숏츠 생성",
@@ -179,7 +189,7 @@ export default function MembershipPage() {
       id: "standard",
       name: "Standard",
       limit: bankConfig?.tierLimits?.standard ?? 100,
-      price: bankConfig?.tierPricesKRW?.standard ?? 44900,
+      price: quoteMembershipPrice(bankConfig?.tierPricesKRW?.standard ?? 44900, billingCycle).amountKRW,
       desc: "본격적인 전문 유튜브 채널 운영자를 위한 베스트셀러",
       features: [
         "월 100회 대용량 숏츠 생성 (일일 3~4편)",
@@ -195,7 +205,7 @@ export default function MembershipPage() {
       id: "premium",
       name: "Premium",
       limit: bankConfig?.tierLimits?.premium ?? 150,
-      price: bankConfig?.tierPricesKRW?.premium ?? 79000,
+      price: quoteMembershipPrice(bankConfig?.tierPricesKRW?.premium ?? 79000, billingCycle).amountKRW,
       desc: "대형 MCN, 학원, 에이전시를 위한 프로페셔널 플랜",
       features: [
         "월 150회 최대 용량 숏츠 생성 (일일 5편 이상)",
@@ -232,6 +242,30 @@ export default function MembershipPage() {
           <p className="mt-3 text-slate-400 max-w-xl mx-auto text-sm sm:text-base">
             3D 시네마틱 영상 + AI 보이스 + BGM 덕킹까지 포함된 고품질 숏츠를 월정액으로 무제한 제작하세요.
           </p>
+          <div className="mt-6 inline-flex rounded-full border border-slate-700 bg-slate-900 p-1">
+            <button
+              type="button"
+              onClick={() => setBillingCycle("monthly")}
+              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+                billingCycle === "monthly"
+                  ? "bg-indigo-600 text-white"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              월간 결제
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingCycle("annual")}
+              className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+                billingCycle === "annual"
+                  ? "bg-indigo-600 text-white"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              연간 결제 · {ANNUAL_DISCOUNT_PERCENT}% 할인
+            </button>
+          </div>
         </div>
 
         {/* 멤버십 안내 */}
@@ -249,6 +283,13 @@ export default function MembershipPage() {
                   <span className="rounded-full bg-cyan-500/10 px-3 py-0.5 text-xs font-semibold text-cyan-400 border border-cyan-500/20">
                     월 {user.monthlyLimit}회 한도
                   </span>
+                  {user.membershipExpiresAt && (
+                    <span className="rounded-full bg-amber-500/10 px-3 py-0.5 text-xs font-semibold text-amber-300 border border-amber-500/20">
+                      {new Date(user.membershipExpiresAt) > new Date()
+                        ? `${new Date(user.membershipExpiresAt).toLocaleDateString()}까지`
+                        : "만료됨"}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -318,7 +359,9 @@ export default function MembershipPage() {
                       <span className="text-3xl font-extrabold text-white">
                         {t.price.toLocaleString()}
                       </span>
-                      <span className="text-sm font-semibold text-slate-400">원 / 월</span>
+                      <span className="text-sm font-semibold text-slate-400">
+                        원 / {billingCycle === "annual" ? "년" : "월"}
+                      </span>
                     </>
                   ) : (
                     <span className="text-xl font-bold text-slate-400">현재 결제 중지</span>
@@ -419,6 +462,7 @@ export default function MembershipPage() {
                       <div className="flex items-center gap-2.5">
                         <span className="text-base font-bold text-white uppercase">
                           {item.tier} 플랜
+                          {item.billingCycle === "annual" ? " · 연간" : " · 월간"}
                         </span>
                         <span
                           className={`rounded-full px-2.5 py-0.5 text-xs font-semibold border ${st.color}`}
@@ -526,7 +570,10 @@ export default function MembershipPage() {
                   <p>
                     결제 예정 금액:{" "}
                     <span className="text-white font-bold text-sm">
-                      {bankConfig?.tierPricesKRW[selectedTier]?.toLocaleString()}원
+                      {selectedQuote.amountKRW.toLocaleString()}원
+                    </span>
+                    <span className="ml-1">
+                      ({billingCycle === "annual" ? `연간 ${ANNUAL_DISCOUNT_PERCENT}% 할인 · ${selectedQuote.periodDays}일` : "월간 30일"})
                     </span>
                   </p>
                   <p>

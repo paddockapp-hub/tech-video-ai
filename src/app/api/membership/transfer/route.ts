@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { DB, BankTransferRequest, MembershipTier } from "@/lib/db";
+import { isBillingCycle, membershipQuoteMap, quoteMembershipPrice } from "@/lib/billing";
 
 function generateUniqueDepositCode(existingCodes: Set<string>): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 혼동하기 쉬운 I, O, 0, 1 제외
@@ -37,6 +38,8 @@ export async function GET() {
       tierLimits: config.tierLimits,
       tierPricesKRW: config.tierPricesKRW,
     },
+    billingQuotes: membershipQuoteMap(config.tierPricesKRW),
+    annualDiscountPercent: 20,
     transfers: myTransfers,
   });
 }
@@ -48,7 +51,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { tier, depositorName, userMemo } = body;
+  const { tier, depositorName, userMemo, billingCycle } = body;
 
   const validTiers: MembershipTier[] = ["basic", "standard", "premium"];
   if (!validTiers.includes(tier)) {
@@ -58,6 +61,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (!isBillingCycle(billingCycle) && billingCycle !== undefined && billingCycle !== "") {
+    return NextResponse.json(
+      { error: "결제 주기는 월간 또는 연간만 선택할 수 있습니다." },
+      { status: 400 }
+    );
+  }
+
+  const cycle = isBillingCycle(billingCycle) ? billingCycle : "monthly";
+
   if (!depositorName || depositorName.trim().length < 2) {
     return NextResponse.json(
       { error: "실제 입금하실 입금자명을 정확히 입력해주세요." },
@@ -66,7 +78,8 @@ export async function POST(req: NextRequest) {
   }
 
   const config = DB.getConfig();
-  const amountKRW = config.tierPricesKRW[tier as MembershipTier] || 0;
+  const quote = quoteMembershipPrice(config.tierPricesKRW[tier as MembershipTier] || 0, cycle);
+  const amountKRW = quote.amountKRW;
 
   const transfers = DB.getTransfers();
 
@@ -100,6 +113,8 @@ export async function POST(req: NextRequest) {
     depositorName: depositorName.trim(),
     status: "pending_deposit",
     userMemo: userMemo?.trim() || "",
+    billingCycle: cycle,
+    periodDays: quote.periodDays,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

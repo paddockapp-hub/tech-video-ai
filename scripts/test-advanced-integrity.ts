@@ -266,6 +266,8 @@ async function runAdvancedTests() {
       accountHolder: "주식회사 쇼츠메이킹",
       depositCode: "SM-ATOMIC",
       depositorName: "원자적결제유저",
+      billingCycle: "monthly",
+      periodDays: 30,
       status: "pending_deposit",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -312,6 +314,72 @@ async function runAdvancedTests() {
     console.log(`   -> 결과: ${passed ? "PASS" : "FAIL"}`);
 
     // 정리
+    DB.setUsers(DB.getUsers().filter((x) => x.id !== testUserId));
+    DB.setTransfers(DB.getTransfers().filter((x) => x.id !== testTxId));
+  }
+
+  {
+    console.log("\n[6] 연간 플랜 승인 기간(365일) 테스트 중...");
+    const testUserId = "annual_user_" + Date.now();
+    const testTxId = "annual_tx_" + Date.now();
+    const u: User = {
+      id: testUserId,
+      email: "annual@test.com",
+      passwordHash: "dummy",
+      name: "연간결제유저",
+      role: "user",
+      status: "active",
+      membershipTier: "free",
+      monthlyLimit: 3,
+      usedCredits: 0,
+      bonusCredits: 0,
+      nextResetDate: new Date(Date.now() + 86400000 * 30).toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const tx: BankTransferRequest = {
+      id: testTxId,
+      userId: testUserId,
+      userEmail: "annual@test.com",
+      userName: "연간결제유저",
+      tier: "premium",
+      amountKRW: Math.round(79000 * 12 * 0.8),
+      bankName: "토스뱅크",
+      accountNumber: "1000-1234-5678",
+      accountHolder: "주식회사 쇼츠메이킹",
+      depositCode: "SM-ANNUAL",
+      depositorName: "연간결제유저",
+      billingCycle: "annual",
+      periodDays: 365,
+      status: "pending_deposit",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    DB.setUsers([...DB.getUsers(), u]);
+    DB.setTransfers([...DB.getTransfers(), tx]);
+    const approval = await DB.executePaymentApprovalTransaction(testTxId, "approve");
+    const updatedUser = DB.getUsers().find((x) => x.id === testUserId);
+    const expiresAt = updatedUser?.membershipExpiresAt
+      ? new Date(updatedUser.membershipExpiresAt).getTime()
+      : 0;
+    const expected = Date.now() + 365 * 86400000;
+    const passed =
+      approval.success &&
+      updatedUser?.membershipTier === "premium" &&
+      Math.abs(expiresAt - expected) < 2 * 86400000;
+    report.push({
+      id: "ANNUAL_BILLING_PERIOD",
+      name: "연간 플랜 승인 시 365일 이용 기간 저장",
+      status: passed ? "PASS" : "FAIL",
+      details: passed
+        ? "연간 신청 승인 후 membershipExpiresAt이 약 365일로 설정되었습니다."
+        : "연간 플랜 이용 기간이 올바르게 저장되지 않았습니다.",
+      evidence: {
+        membershipExpiresAt: updatedUser?.membershipExpiresAt,
+        tier: updatedUser?.membershipTier,
+      },
+    });
+    console.log(`   -> 결과: ${passed ? "PASS" : "FAIL"}`);
     DB.setUsers(DB.getUsers().filter((x) => x.id !== testUserId));
     DB.setTransfers(DB.getTransfers().filter((x) => x.id !== testTxId));
   }

@@ -1,5 +1,10 @@
 import fs from "fs";
 import path from "path";
+import {
+  type BillingCycle,
+  computeMembershipExpiry,
+  periodDaysForCycle,
+} from "./billing";
 
 export type Role = "user" | "admin";
 export type MembershipTier = "free" | "basic" | "standard" | "premium";
@@ -47,6 +52,8 @@ export interface BankTransferRequest {
   createdAt: string;
   updatedAt: string;
   approvedAt?: string;
+  billingCycle?: BillingCycle;
+  periodDays?: number;
 }
 
 export interface SystemConfig {
@@ -551,14 +558,21 @@ export const DB = {
           transfer.adminMemo = adminMemo || "입금 확인 완료 - 멤버십 활성화";
           transfer.updatedAt = new Date().toISOString();
 
+          const periodDays = transfer.periodDays || periodDaysForCycle(transfer.billingCycle);
+          const expires = computeMembershipExpiry(
+            user.membershipExpiresAt,
+            user.membershipTier,
+            periodDays
+          );
+
           user.membershipTier = transfer.tier;
           user.monthlyLimit = config.tierLimits[transfer.tier] ?? 30;
           user.usedCredits = 0; // 신규 활성화 시 사용량 0으로 리셋
-
-          const expires = new Date();
-          expires.setDate(expires.getDate() + 30);
           user.membershipExpiresAt = expires.toISOString();
-          user.nextResetDate = expires.toISOString();
+
+          const nextReset = new Date();
+          nextReset.setDate(nextReset.getDate() + 30);
+          user.nextResetDate = nextReset.toISOString();
           user.updatedAt = new Date().toISOString();
         } else if (action === "reject") {
           transfer.status = "rejected";

@@ -94,6 +94,8 @@ async function testDuplicateTransferApproval() {
     accountHolder: "주식회사 쇼츠메이킹",
     depositCode: "SM-TEST",
     depositorName: "결제테스터",
+    billingCycle: "monthly",
+    periodDays: 30,
     status: "pending_deposit",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

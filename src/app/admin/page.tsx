@@ -347,6 +347,9 @@ export default function AdminPage() {
                         </td>
                         <td className="py-3.5 pr-4 uppercase font-bold text-cyan-400">
                           {t.tier}
+                          <span className="ml-1 text-[10px] font-semibold text-slate-400">
+                            {t.billingCycle === "annual" ? "연간" : "월간"}
+                          </span>
                         </td>
                         <td className="py-3.5 pr-4 text-white font-semibold">
                           {t.amountKRW.toLocaleString()}원
