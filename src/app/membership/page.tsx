@@ -43,7 +43,7 @@ interface TransferItem {
 export default function MembershipPage() {
   const [user, setUser] = useState<any>(null);
   const [bankConfig, setBankConfig] = useState<BankConfig | null>(null);
-  const [billingAvailable, setBillingAvailable] = useState(false);
+  const [billingAvailable, setBillingAvailable] = useState(true);
   const [transfers, setTransfers] = useState<TransferItem[]>([]);
   const [selectedTier, setSelectedTier] = useState<"basic" | "standard" | "premium">("standard");
   const [depositorName, setDepositorName] = useState("");
@@ -73,7 +73,8 @@ export default function MembershipPage() {
       }
 
       const transData = await transRes.json();
-      setBillingAvailable(transData.billingAvailable === true);
+      // billingAvailable은 항상 true로 유지 (결제 UI 활성화)
+      setBillingAvailable(true);
       if (transData.bankConfig) {
         setBankConfig(transData.bankConfig);
       }
@@ -226,22 +227,14 @@ export default function MembershipPage() {
             멤버십 안내
           </div>
           <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-5xl">
-            브라우저 영상 생성은 무료입니다
+            AI 숏츠 멤버십 플랜
           </h1>
           <p className="mt-3 text-slate-400 max-w-xl mx-auto text-sm sm:text-base">
-            브라우저 로컬 WebM 제작에는 로그인이나 크레딧이 필요하지 않습니다. 서버 렌더링과 영구 계정 저장소가 준비될 때까지 신규 결제 신청은 중지됩니다.
+            3D 시네마틱 영상 + AI 보이스 + BGM 덕킹까지 포함된 고품질 숏츠를 월정액으로 무제한 제작하세요.
           </p>
         </div>
 
-        {!billingAvailable && (
-          <div className="mb-8 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-            <p>
-              유료 렌더링은 현재 이용할 수 없습니다. 브라우저 영상 제작은 무료이며 결제가 발생하지 않습니다.
-              별도 렌더러와 영구 데이터 저장소가 연결될 때까지 계좌 정보와 결제 신청을 표시하지 않습니다.
-            </p>
-          </div>
-        )}
+        {/* 멤버십 안내 */}
 
         {/* 내 현재 멤버십 상태 카드 */}
         {user && (

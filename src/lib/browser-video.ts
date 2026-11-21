@@ -2,6 +2,9 @@
 // Real 3D Cinematic Shorts Video Renderer (Canvas 3D Engine + Web Audio Synthesizer)
 // =============================================================================
 
+import { pickScene, SCENE_PRESETS, splitSentences, type SceneKind } from "./sceneMapper";
+import { VideoAudio, type TimelineItem } from "./videoAudio";
+
 export interface BrowserVideoOptions {
   title: string;
   script: string;
@@ -134,12 +137,22 @@ function draw3DScene(
   category: "education" | "engineering",
   elapsed: number,
   duration: number,
-  particles: Particle3D[]
+  particles: Particle3D[],
+  timeline?: TimelineItem[],
+  currentSceneKind?: SceneKind,
+  prevSceneKind?: SceneKind,
+  sceneTransitionProgress?: number,
 ) {
   const progress = Math.min(1, elapsed / duration);
   const isEng = category === "engineering";
-  const primaryColor = isEng ? "#00f0ff" : "#ffd700";
-  const secondaryColor = isEng ? "#6366f1" : "#ff007f";
+
+  // 씬 매핑: currentSceneKind가 있으면 해당 프리셋 색상 사용
+  let primaryColor = isEng ? "#00f0ff" : "#ffd700";
+  let secondaryColor = isEng ? "#6366f1" : "#ff007f";
+  if (currentSceneKind && SCENE_PRESETS[currentSceneKind]) {
+    primaryColor = SCENE_PRESETS[currentSceneKind].color;
+    secondaryColor = SCENE_PRESETS[currentSceneKind].accent;
+  }
 
   // 1. 딥 사이버/스페이스 그라디언트 배경
   const bg = ctx.createRadialGradient(
@@ -380,12 +393,18 @@ function draw3DScene(
   });
   ctx.restore();
 
-  // 6. 하단 바이럴 쇼츠 임팩트 자막 (2~4단어 리드미컬 하이라이트)
-  const segmentIndex = Math.min(
-    segments.length - 1,
-    Math.floor(progress * segments.length)
-  );
-  const caption = segments[segmentIndex] ?? "";
+  // 6. 하단 바이럴 쇼츠 임팩트 자막 (타임라인 기반 or 균등 분할)
+  let caption = "";
+  if (timeline && timeline.length > 0) {
+    const cur = timeline.find((s) => elapsed >= s.start && elapsed < s.end);
+    caption = cur?.text ?? "";
+  } else {
+    const segmentIndex = Math.min(
+      segments.length - 1,
+      Math.floor(progress * segments.length)
+    );
+    caption = segments[segmentIndex] ?? "";
+  }
 
   ctx.save();
   const captionY = HEIGHT * 0.76;
@@ -434,7 +453,14 @@ function draw3DScene(
   }
   ctx.restore();
 
-  // 8. 최하단 프로그레스 바
+  // 8. 씬 전환 페이드 오버레이
+  if (typeof sceneTransitionProgress === "number" && sceneTransitionProgress > 0 && sceneTransitionProgress < 1) {
+    const fadeAlpha = Math.sin(sceneTransitionProgress * Math.PI) * 0.35;
+    ctx.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  }
+
+  // 9. 최하단 프로그레스 바
   ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
   ctx.fillRect(0, HEIGHT - 10, WIDTH, 10);
   const pGrad = ctx.createLinearGradient(0, 0, WIDTH, 0);
@@ -491,7 +517,7 @@ function createSynthesizedAudioStream(audioCtx: AudioContext, durationSec: numbe
 }
 
 /**
- * 3D 비디오 + 신디사이저 오디오 통합 렌더링 함수
+ * 3D 비디오 + TTS/BGM 덕킹 오디오 통합 렌더링 함수
  */
 export async function renderBrowserVideo({
   title,
@@ -519,43 +545,67 @@ export async function renderBrowserVideo({
   ].find((type) => MediaRecorder.isTypeSupported(type)) || "video/webm";
 
   // 대본 문장 분할
-  const rawSegments = script
-    .replace(/([.!?。！？\n])\s*/g, "$1|")
-    .split("|")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const sentences = splitSentences(script);
+  const segments = sentences.length > 0 ? sentences : [title];
 
-  const segments = rawSegments.length > 0 ? rawSegments : [title];
-  const duration = Math.max(3, Math.min(60, Math.floor(durationSec)));
+  // --- TTS + BGM 덕킹 오디오 시도 ---
+  let audioEngine: VideoAudio | null = null;
+  let timeline: TimelineItem[] = [];
+  let totalDuration = Math.max(3, Math.min(60, Math.floor(durationSec)));
+  let ttsOk = false;
+
+  try {
+    audioEngine = new VideoAudio();
+    timeline = await audioEngine.prepare(sentences);
+    totalDuration = Math.ceil(audioEngine.total + 0.5);
+    ttsOk = true;
+  } catch (ttsErr) {
+    console.warn("[TTS] TTS 실패, BGM만 사용합니다:", ttsErr);
+    // TTS 실패 시 VideoAudio를 닫고 기존 합성 오디오 폴백
+    if (audioEngine) {
+      try { audioEngine.close(); } catch {}
+      audioEngine = null;
+    }
+  }
+
+  const duration = totalDuration;
 
   // 비디오 스트림 & 오디오 스트림 결합
   const videoStream = canvas.captureStream(FPS);
+  let combinedStream: MediaStream;
 
-  let combinedStream = videoStream;
-  let audioCtx: AudioContext | null = null;
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (AudioContextClass) {
-      audioCtx = new AudioContextClass();
-      if (audioCtx.state === "suspended") {
-        await audioCtx.resume();
+  if (audioEngine && ttsOk) {
+    // VideoAudio 스트림 사용 (TTS + BGM 덕킹)
+    combinedStream = new MediaStream([
+      ...videoStream.getVideoTracks(),
+      ...audioEngine.stream.getAudioTracks(),
+    ]);
+  } else {
+    // 폴백: 기존 합성 오디오
+    let fallbackStream = videoStream;
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        const audioCtx = new AudioContextClass();
+        if (audioCtx.state === "suspended") await audioCtx.resume();
+        const audioStream = createSynthesizedAudioStream(audioCtx, duration);
+        const audioTracks = audioStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          fallbackStream = new MediaStream([
+            ...videoStream.getVideoTracks(),
+            ...audioTracks,
+          ]);
+        }
       }
-      const audioStream = createSynthesizedAudioStream(audioCtx, duration);
-      const audioTracks = audioStream.getAudioTracks();
-      if (audioTracks.length > 0) {
-        combinedStream = new MediaStream([
-          ...videoStream.getVideoTracks(),
-          ...audioTracks,
-        ]);
-      }
+    } catch (audioErr) {
+      console.warn("[Audio Synth Warning] Proceeding with video only:", audioErr);
     }
-  } catch (audioErr) {
-    console.warn("[Audio Synth Warning] Proceeding with video only:", audioErr);
+    combinedStream = fallbackStream;
   }
 
   const recorder = new MediaRecorder(combinedStream, {
     mimeType,
-    videoBitsPerSecond: 4_500_000, // 고화질 4.5 Mbps
+    videoBitsPerSecond: 4_500_000,
   });
 
   const chunks: BlobPart[] = [];
@@ -568,10 +618,22 @@ export async function renderBrowserVideo({
   });
 
   const particles = initParticles(110);
+
+  // 씬 전환 상태 추적
+  let lastSceneKind: SceneKind = "generic";
+  let prevSceneKind: SceneKind = "generic";
+  let sceneChangeTime = 0;
+  const SCENE_TRANSITION_DURATION = 0.4; // 초
+
   const startedAt = performance.now();
 
   try {
     recorder.start(400);
+
+    // TTS+BGM 오디오 시작
+    if (audioEngine && ttsOk) {
+      await audioEngine.start();
+    }
 
     await new Promise<void>((resolve, reject) => {
       const renderFrame = () => {
@@ -581,7 +643,26 @@ export async function renderBrowserVideo({
         }
 
         const elapsed = (performance.now() - startedAt) / 1000;
-        draw3DScene(ctx, title, segments, category, elapsed, duration, particles);
+
+        // 현재 씬 결정 (타임라인 기반 or 균등 분할)
+        let currentSceneKind: SceneKind = "generic";
+        if (timeline.length > 0) {
+          const cur = timeline.find((s) => elapsed >= s.start && elapsed < s.end);
+          currentSceneKind = pickScene(cur?.text ?? "");
+        } else {
+          const segIdx = Math.min(segments.length - 1, Math.floor((elapsed / duration) * segments.length));
+          currentSceneKind = pickScene(segments[segIdx] ?? "");
+        }
+
+        // 씬 전환 추적
+        if (currentSceneKind !== lastSceneKind) {
+          prevSceneKind = lastSceneKind;
+          lastSceneKind = currentSceneKind;
+          sceneChangeTime = elapsed;
+        }
+        const sceneTransitionProgress = Math.min(1, (elapsed - sceneChangeTime) / SCENE_TRANSITION_DURATION);
+
+        draw3DScene(ctx, title, segments, category, elapsed, duration, particles, timeline, currentSceneKind, prevSceneKind, sceneTransitionProgress);
         onProgress?.(Math.min(1, elapsed / duration));
 
         if (elapsed >= duration) {
@@ -602,10 +683,8 @@ export async function renderBrowserVideo({
   } finally {
     if (recorder.state === "recording") recorder.stop();
     combinedStream.getTracks().forEach((t) => t.stop());
-    if (audioCtx) {
-      try {
-        await audioCtx.close();
-      } catch { }
+    if (audioEngine) {
+      try { audioEngine.close(); } catch {}
     }
   }
 }

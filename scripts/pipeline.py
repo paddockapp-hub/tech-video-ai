@@ -414,6 +414,13 @@ async def run_pipeline(script, title="shorts", category="engineering", output_di
     with open(vjp, "w", encoding="utf-8") as f:
         json.dump([{"start": s, "end": e, "text": t} for s, e, t in viral], f, ensure_ascii=False, indent=2)
 
+    # 오디오 길이 미리 계산
+    from moviepy import AudioFileClip
+    audio_clip = AudioFileClip(ap)
+    duration = audio_clip.duration
+    audio_clip.close()
+    print(f"[Pipeline] 오디오 길이: {duration:.1f}초", flush=True)
+
     print("\n[3/4] 진짜 3D 영상 렌더링...", flush=True)
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -427,7 +434,7 @@ async def run_pipeline(script, title="shorts", category="engineering", output_di
         print(f"[3/4] 3D 프레임 생성 중... (총 {int(duration * fps)} 프레임)", flush=True)
         for frame_idx in range(int(duration * fps)):
             t = frame_idx * frame_duration
-            frame_array = render_3d_scene(1080, 1920, t, title, category)
+            frame_array = render_3d_scene(1080, 1920, t, title, category, script)
             frames.append(frame_array)
             
             if frame_idx % 10 == 0:
