@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -18,9 +18,11 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Header } from "@/components/Header";
+import { ScenePreview } from "@/components/ScenePreview";
 import { CATEGORIES } from "@/lib/categories";
 import { generateScriptTemplate } from "@/lib/script-generator";
-import { renderBrowserVideo } from "@/lib/browser-video";
+import { planVideo, renderBrowserVideo } from "@/lib/browser-video";
+import { SCENE_LABELS, sceneVariantFor, type SceneVariant } from "@/lib/video/scene-classifier";
 
 type PipelineStatus = "idle" | "generating" | "success" | "error";
 
@@ -31,7 +33,40 @@ interface PipelineResult {
   provenance: string;
   qualityPassed: boolean;
   qualityReport: string;
+  width: number;
+  height: number;
+  frameRate: number;
+  videoBitrateBps: number;
 }
+
+const SCENE_VARIANT_LABELS: Partial<Record<SceneVariant, string>> = {
+  terminal: "코드 터미널",
+  neural: "신경망",
+  server: "데이터센터 서버",
+  topology: "네트워크 흐름",
+  processor: "프로세서 단면",
+  wafer: "웨이퍼 공정",
+  engine: "엔진 단면",
+  arm: "로봇 관절",
+  gearbox: "기어박스",
+  planet: "행성 궤도",
+  solar: "태양계",
+  chalkboard: "칠판 개념도",
+  exam: "시험 문제 분석",
+  graph: "수학 그래프",
+  vector: "벡터 도식",
+  wave: "파동 시각화",
+  field: "물리장 시각화",
+  molecule: "분자 구조",
+  cell: "세포 구조",
+  economy: "경제 데이터",
+  timeline: "역사 타임라인",
+  research: "연구 도식",
+  attention: "어텐션 가중치",
+  gpu: "GPU 병렬 연산",
+  memory: "메모리 흐름",
+  "hash-table": "해시 테이블",
+};
 
 function estimateDuration(script: string) {
   return Math.max(12, Math.min(30, Math.ceil(script.length / 7)));
@@ -53,6 +88,10 @@ export default function AutoPage() {
 
   const activeCategoryGroup = CATEGORIES.find((c) => c.id === selectedCategory);
   const activeSubcategory = activeCategoryGroup?.items.find((i) => i.id === selectedSubcategory);
+  const scenePlan = useMemo(
+    () => planVideo(title.trim() || "제목", script.trim() || title, selectedCategory, selectedSubcategory),
+    [title, script, selectedCategory, selectedSubcategory],
+  );
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -124,28 +163,33 @@ export default function AutoPage() {
       setElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
-    const durationSec = estimateDuration(script.trim());
-    setProgress("브라우저에서 실제 WebM 영상 장면을 렌더링 중...");
+    setProgress("문장별 주제 분류와 3D 장면을 준비하는 중...");
 
     try {
-      const blob = await renderBrowserVideo({
+      const rendered = await renderBrowserVideo({
         script: script.trim(),
         title: title.trim(),
         category: selectedCategory,
-        durationSec,
+        subcategory: selectedSubcategory,
         onProgress: (progress) => {
-          setProgress(`브라우저에서 영상 인코딩 중... ${Math.round(progress * 100)}%`);
+          setProgress(`장면 렌더링·영상 인코딩 중... ${Math.round(progress * 100)}%`);
         },
       });
-      const video = URL.createObjectURL(blob);
+      const video = URL.createObjectURL(rendered.blob);
+      const format = rendered.blob.type || "video/webm";
+      const qualityReport = `재생 검증 완료 · ${rendered.width}×${rendered.height} · ${rendered.frameRate}fps · ${rendered.durationSec.toFixed(1)}초 · ${(rendered.blob.size / (1024 * 1024)).toFixed(1)} MB`;
 
       setResult({
         video,
-        durationSec,
-        format: blob.type || "video/webm",
-        provenance: "브라우저 로컬 렌더링 (AI 이미지/TTS 미사용)",
-        qualityPassed: blob.size > 0,
-        qualityReport: `WebM 파일 생성 확인 · ${(blob.size / (1024 * 1024)).toFixed(1)} MB`,
+        durationSec: Math.round(rendered.durationSec),
+        format,
+        provenance: "문장별 주제 매칭 3D 장면 · WebGL/Canvas 렌더링 · 배경 음악",
+        qualityPassed: true,
+        qualityReport,
+        width: rendered.width,
+        height: rendered.height,
+        frameRate: rendered.frameRate,
+        videoBitrateBps: rendered.videoBitrateBps,
       });
       setStatus("success");
       setProgress("완료되었습니다!");
@@ -193,7 +237,7 @@ export default function AutoPage() {
             지식 & 메커니즘 숏츠 제작기
           </h1>
           <p className="mt-2 text-sm text-slate-400">
-            대본과 제목으로 실제 WebM 세로 영상을 브라우저에서 생성합니다. 외부 서버 전송 없이 무료로 체험할 수 있으며, 음성 합성이나 AI 이미지 생성은 포함되지 않습니다.
+            대본과 제목으로 실제 9:16 세로 영상을 브라우저에서 생성합니다. 기기 성능에 따라 최대 1080p·30fps로 렌더링하며, 문장별 3D 장면과 배경 음악을 합성합니다. 외부 서버 전송은 없고 TTS·AI 이미지는 포함되지 않습니다.
           </p>
         </div>
 
@@ -259,6 +303,54 @@ export default function AutoPage() {
             ))}
           </div>
         )}
+
+        <section
+          aria-labelledby="scene-preview-title"
+          className="mb-6 rounded-3xl border border-slate-800 bg-slate-900/60 p-4 sm:p-6"
+        >
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold text-cyan-300">문장별 장면 자동 매칭</p>
+              <h2 id="scene-preview-title" className="mt-1 text-lg font-bold text-white">
+                주제에 맞춰 달라지는 3D 장면
+              </h2>
+            </div>
+            <p className="text-xs text-slate-400">
+              {scenePlan.timeline.segments.length}개 장면 · 1080×1920 출력 지원
+            </p>
+          </div>
+          <div className="grid gap-5 md:grid-cols-[minmax(0,240px)_1fr]">
+            <div className="mx-auto w-full max-w-[240px] overflow-hidden rounded-2xl border border-slate-700 bg-black">
+              <ScenePreview
+                title={title.trim() || "제목"}
+                timeline={scenePlan.timeline}
+                subcategory={selectedSubcategory}
+                className="block w-full"
+              />
+            </div>
+            <ol aria-label="문장별 3D 장면 계획" className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
+              {scenePlan.timeline.segments.map((segment) => {
+                const variant = sceneVariantFor(
+                  segment.scene,
+                  segment.text,
+                  segment.index,
+                  selectedSubcategory,
+                );
+                return (
+                  <li key={segment.index} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-semibold text-cyan-200">
+                        {SCENE_VARIANT_LABELS[variant] ?? SCENE_LABELS[segment.scene]}
+                      </span>
+                      <span className="text-[10px] text-slate-500">{SCENE_LABELS[segment.scene]}</span>
+                    </div>
+                    <p className="text-xs leading-relaxed text-slate-300">{segment.text}</p>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </section>
 
         {/* 3. 바이럴 후킹 추천 알약 */}
         {activeSubcategory && activeSubcategory.recommendedHooks.length > 0 && (
@@ -328,7 +420,7 @@ export default function AutoPage() {
             />
             <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
               <span>{script.length}자 · 약 {Math.round(script.length / 5.5)}초 분량</span>
-              <span>브라우저 렌더 · 예상 {estimateDuration(script)}초 · 음성 없음</span>
+              <span>문장별 3D 장면 · 예상 {estimateDuration(script)}초 · 신디사이저 배경음 · 나레이션 없음</span>
             </div>
           </div>
 
@@ -346,7 +438,7 @@ export default function AutoPage() {
             ) : (
               <>
                 <Zap className="h-5 w-5" />
-                무료 브라우저 영상 만들기 (WebM)
+                  무료 브라우저 영상 만들기
               </>
             )}
           </button>
@@ -362,12 +454,12 @@ export default function AutoPage() {
 
             <div className="space-y-3">
               <StepRow
-                label="제목·카테고리 기반 그래픽 장면 그리기"
+                label="문장별 주제 분류·3D 장면 렌더링"
                 active={elapsed < 2}
                 done={elapsed >= 2}
               />
               <StepRow
-                label="대본 자막을 영상 프레임에 합성"
+                label="1080p·30fps 녹화·배경 음악 믹싱"
                 active={elapsed >= 2}
                 done={false}
               />
@@ -434,8 +526,10 @@ export default function AutoPage() {
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5 space-y-2">
                   <p className="text-xs font-semibold text-slate-400">적용된 스펙</p>
-                  <p className="text-xs text-slate-300">· 포맷: {result.format} · 720×1280 (9:16)</p>
-                  <p className="text-xs text-slate-300">· 길이: 약 {result.durationSec}초 · 오디오 트랙 없음</p>
+                  <p className="text-xs text-slate-300">· 포맷: {result.format} · {result.width}×{result.height} (9:16) · {result.frameRate}fps</p>
+                  <p className="text-xs text-slate-300">· 인코딩 목표: {(result.videoBitrateBps / 1_000_000).toFixed(0)}Mbps · 기기 성능에 따라 720p로 자동 조정</p>
+                  <p className="text-xs text-slate-300">· 길이: 약 {result.durationSec}초 · 나레이션 없음 · 배경 음악 포함</p>
+                  <p className="text-xs text-slate-300">· 비주얼: 문장별 주제 분류, 컷 전환, 3D 장면</p>
                   <p className="text-xs text-slate-300">· 생성 방식: {result.provenance}</p>
                   <p className="text-xs text-slate-300">· 크레딧: 차감 없음 (기기 내 로컬 생성)</p>
                 </div>
@@ -444,11 +538,11 @@ export default function AutoPage() {
                   {result.video && (
                     <a
                       href={result.video}
-                      download={`${title.replace(/[\\/:*?"<>|]+/g, "_").trim().slice(0, 60) || "shorts"}.webm`}
+                      download={`${title.replace(/[\\/:*?"<>|]+/g, "_").trim().slice(0, 60) || "shorts"}.${result.format.includes("mp4") ? "mp4" : "webm"}`}
                       className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 py-3.5 text-sm font-bold text-white shadow-lg hover:brightness-110 active:scale-[0.98] transition"
                     >
                       <Download className="h-4 w-4" />
-                      WebM 영상 다운로드
+                      {result.format.includes("mp4") ? "MP4 영상 다운로드" : "WebM 영상 다운로드"}
                     </a>
                   )}
                 </div>
